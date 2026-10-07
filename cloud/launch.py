@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import io
+import json
 import re
 import subprocess
 import sys
@@ -68,10 +69,10 @@ def training_job_request(
         "sagemaker_program": ENTRY,
         "sagemaker_submit_directory": source_uri,
         "sagemaker_region": region,
-        "sagemaker_container_log_level": "20",
+        "sagemaker_container_log_level": 20,  # must decode to an int (logging level)
         "config": config,
         "overrides": ";".join(overrides),
-        "eval_episodes": str(eval_episodes),
+        "eval_episodes": eval_episodes,
     }
     max_seconds = int(max_hours * 3600)
     request = {
@@ -81,8 +82,9 @@ def training_job_request(
             "TrainingImage": image_uri(region, instance_type),
             "TrainingInputMode": "File",
         },
-        # The DLC's training toolkit JSON-decodes every hyperparameter value.
-        "HyperParameters": {k: _json_str(v) for k, v in hyper.items()},
+        # The DLC's training toolkit JSON-decodes every value, so encode native types
+        # (a string "20" log level crashed the toolkit's logging setup).
+        "HyperParameters": {k: json.dumps(v) for k, v in hyper.items()},
         "ResourceConfig": {"InstanceType": instance_type, "InstanceCount": 1, "VolumeSizeInGB": 30},
         "OutputDataConfig": {"S3OutputPath": f"s3://{bucket}/{PREFIX}/output"},
         "CheckpointConfig": {
@@ -101,12 +103,6 @@ def training_job_request(
     if spot:
         request["StoppingCondition"]["MaxWaitTimeInSeconds"] = max_seconds * 2
     return request
-
-
-def _json_str(value: str) -> str:
-    import json
-
-    return json.dumps(value)
 
 
 # --------------------------------------------------------------------- git / aws
@@ -171,8 +167,6 @@ def cmd_train(args: argparse.Namespace) -> int:
         eval_episodes=args.eval_episodes,
     )  # fmt: skip
     if args.dry_run:
-        import json
-
         print(json.dumps(request, indent=2))
         return 0
     sess.client("sagemaker").create_training_job(**request)

@@ -63,6 +63,9 @@ def test_training_job_request_shape():
     assert hyper["sagemaker_program"] == "cloud/sagemaker_entry.py"
     assert hyper["sagemaker_submit_directory"] == "s3://b/src.tar.gz"
     assert hyper["overrides"] == "experiment.seed=1;train.total_env_steps=100"
+    # The toolkit passes this to logging.basicConfig(level=...): it must decode to an int.
+    assert hyper["sagemaker_container_log_level"] == 20
+    assert hyper["eval_episodes"] == 50
     assert r["Environment"]["DYNABELIEF_GIT_COMMIT"] == "abc123"
     assert r["CheckpointConfig"] == {"S3Uri": "s3://b/dynabelief/checkpoints/dynabelief-t-s0-1",
                                      "LocalPath": "/opt/ml/checkpoints"}  # fmt: skip
