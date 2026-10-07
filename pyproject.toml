@@ -43,6 +43,7 @@ where = ["src"]
 testpaths = ["tests"]
 pythonpath = ["."]
 addopts = "-ra"
+markers = ["slow: learning tests that take tens of seconds (deselect with -m 'not slow')"]
 filterwarnings = [
     # pygame (imported by Pursuit) uses the deprecated pkg_resources API on newer setuptools
     "ignore:pkg_resources is deprecated:DeprecationWarning:pygame.pkgdata",

@@ -203,7 +203,9 @@ class PPOConfig:
     value_clip_eps: float = 0.2  # 0 disables value clipping
     epochs: int = 5
     num_minibatches: int = 2
-    chunk_length: int = 16  # recurrent sequence length for updates
+    # Recurrent sequence length for updates (truncated BPTT). It bounds how far back
+    # memory can be learned: gradients never cross a chunk boundary.
+    chunk_length: int = 16
     entropy_coef: float = 0.01
     value_coef: float = 1.0
     max_grad_norm: float = 10.0

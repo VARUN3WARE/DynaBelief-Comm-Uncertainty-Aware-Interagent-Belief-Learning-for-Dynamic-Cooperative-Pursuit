@@ -248,11 +248,14 @@ def test_minibatch_hidden_is_chunk_start_hidden():
             assert any(matches)
 
 
-def test_ratio_is_one_before_first_gradient_step():
-    """Recomputed log-probs equal stored ones: buffer, chunking and unroll are aligned."""
+@pytest.mark.parametrize("chunk_length", [1, 2, 4, 8])
+def test_ratio_is_one_before_first_gradient_step(chunk_length):
+    """Recomputed log-probs equal stored ones: buffer, chunking and unroll are aligned,
+    including chunks that start mid-episode from a stored hidden state."""
     policy = tiny_policy()
     buf = fill_buffer(policy)
-    for mb in buf.minibatches(2, 4, torch.Generator().manual_seed(0), buf.advantages):
+    assert (~buf.episode_start[::chunk_length]).any() or chunk_length == 8
+    for mb in buf.minibatches(2, chunk_length, torch.Generator().manual_seed(0), buf.advantages):
         logits = policy.actor.unroll(mb.obs, mb.actor_hidden0, mb.episode_start)
         new_lp = Categorical(logits=logits).log_prob(mb.actions)
         torch.testing.assert_close(new_lp, mb.old_log_probs, rtol=1e-5, atol=1e-5)
