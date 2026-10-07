@@ -13,7 +13,7 @@ Object Search*, IEEE T-RO 2026 ([code](https://github.com/JernejPuc/centurymaze)
 |---|---|---|
 | M0 | packaging, strict config, seeding, logging, CLIs, tests | done |
 | M1 | Pursuit wrapper, information boundary, packet-loss channel, random-policy smoke test | done |
-| M2 | No-Communication MAPPO | implemented; learning check passed; full baseline run in progress |
+| M2 | No-Communication MAPPO | implemented, learning check passed; baseline run on SageMaker |
 | M3 | TarMAC-MAPPO | |
 | M4 | point-belief DIABL + uniform InfER | |
 | M5 | D-DIABL | |
@@ -24,6 +24,18 @@ Object Search*, IEEE T-RO 2026 ([code](https://github.com/JernejPuc/centurymaze)
 `train.policy: mappo` trains the No-Communication MAPPO baseline. The first learning result is
 in [docs/results/m2_learning_check.md](docs/results/m2_learning_check.md).
 
+Documentation: [docs/](docs/README.md) has the [timeline](docs/timeline.md), the
+[decision log](docs/decisions.md) (including how and why decisions changed) and
+[results](docs/results/).
+
+**Training runs on SageMaker** ([docs/sagemaker.md](docs/sagemaker.md)); the local machine only
+launches jobs and runs tests:
+
+```bash
+.venv/bin/python cloud/launch.py train --config configs/no_comm.yaml   # committed HEAD only
+.venv/bin/python cloud/launch.py status
+```
+
 ## Setup (Linux)
 
 Requires Python 3.11. The commands below use a conda-provided interpreter to build a local `.venv`.
@@ -33,7 +45,7 @@ conda create -y -n dynabelief python=3.11
 $(conda run -n dynabelief which python) -m venv .venv
 .venv/bin/python -m pip install --upgrade pip setuptools wheel
 .venv/bin/python -m pip install torch --index-url https://download.pytorch.org/whl/cu121   # or the CPU wheel
-.venv/bin/python -m pip install -e ".[dev,viz]"
+.venv/bin/python -m pip install -e ".[dev,viz,aws]"
 ```
 
 Verify:
@@ -145,9 +157,10 @@ slowest worker. Peak VRAM is ~1 GB and RAM ~1.4 GB.
 ## Repository layout
 
 ```
+cloud/              launch.py (SageMaker jobs from this machine), sagemaker_entry.py (in-job)
 configs/            smoke.yaml, default.yaml, smoke_mappo.yaml, debug_learning.yaml, no_comm.yaml
 scripts/            train.py, evaluate.py, benchmark_env.py, plot_metrics.py
-docs/results/       milestone result notes (tables + plots from raw run data)
+docs/               timeline, decision log, SageMaker guide, results/ (tables + plots from raw data)
 src/dynabelief/
   config.py         strict dataclass config
   envs/             pursuit.py (wrapper + boundary types), vector.py (auto-reset vector env, workers)
