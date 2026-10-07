@@ -144,14 +144,19 @@ class CommConfig:
 
 @dataclass(frozen=True)
 class TrainConfig:
-    """Rollout settings. ``policy`` is ``random`` until MAPPO lands (M2)."""
+    """Rollout and run-length settings.
+
+    ``total_env_steps`` counts sub-environment steps (vector steps x num_envs).
+    ``policy: random`` runs the M1 smoke rollout (no learning); ``mappo`` trains.
+    """
 
     policy: str = "random"
     num_envs: int = 4
     num_workers: int = 0  # 0 = step envs in-process; W > 0 = W subprocess workers
     rollout_length: int = 32
     total_env_steps: int = 256
-    log_every_steps: int = 0  # 0 = log once per rollout
+    log_every_steps: int = 0  # random policy only: 0 = log once per rollout
+    checkpoint_every_updates: int = 10  # 0 = only the final checkpoint
 
     def validate(self) -> None:
         _require(
@@ -165,9 +170,63 @@ class TrainConfig:
         _require(self.rollout_length >= 1, "train.rollout_length must be >= 1")
         _require(self.total_env_steps >= 1, "train.total_env_steps must be >= 1")
         _require(self.log_every_steps >= 0, "train.log_every_steps must be >= 0")
+        _require(self.checkpoint_every_updates >= 0, "train.checkpoint_every_updates must be >= 0")
 
 
-SUPPORTED_POLICIES = ("random",)
+SUPPORTED_POLICIES = ("random", "mappo")
+
+
+@dataclass(frozen=True)
+class ModelConfig:
+    """Shared actor/critic network sizes."""
+
+    hidden_dim: int = 128  # actor CNN output and GRU size
+    conv_channels: int = 32
+    critic_hidden_dim: int = 128
+
+    def validate(self) -> None:
+        _require(self.hidden_dim >= 1, "model.hidden_dim must be >= 1")
+        _require(self.conv_channels >= 1, "model.conv_channels must be >= 1")
+        _require(self.critic_hidden_dim >= 1, "model.critic_hidden_dim must be >= 1")
+
+
+@dataclass(frozen=True)
+class PPOConfig:
+    """MAPPO hyperparameters. Every loss coefficient is explicit and logged."""
+
+    lr_actor: float = 5e-4
+    lr_critic: float = 5e-4
+    adam_eps: float = 1e-5
+    gamma: float = 0.99
+    gae_lambda: float = 0.95
+    clip_eps: float = 0.2
+    value_clip_eps: float = 0.2  # 0 disables value clipping
+    epochs: int = 5
+    num_minibatches: int = 2
+    chunk_length: int = 16  # recurrent sequence length for updates
+    entropy_coef: float = 0.01
+    value_coef: float = 1.0
+    max_grad_norm: float = 10.0
+    huber_delta: float = 10.0  # 0 = squared error
+    use_value_norm: bool = True
+    normalize_advantages: bool = True
+    target_kl: float = 0.0  # 0 disables early stopping on KL
+
+    def validate(self) -> None:
+        for name in ("lr_actor", "lr_critic", "adam_eps"):
+            _require(getattr(self, name) > 0, f"ppo.{name} must be > 0")
+        _require(0.0 < self.gamma <= 1.0, "ppo.gamma must be in (0, 1]")
+        _require(0.0 <= self.gae_lambda <= 1.0, "ppo.gae_lambda must be in [0, 1]")
+        _require(0.0 < self.clip_eps < 1.0, "ppo.clip_eps must be in (0, 1)")
+        _require(self.value_clip_eps >= 0.0, "ppo.value_clip_eps must be >= 0")
+        _require(self.epochs >= 1, "ppo.epochs must be >= 1")
+        _require(self.num_minibatches >= 1, "ppo.num_minibatches must be >= 1")
+        _require(self.chunk_length >= 1, "ppo.chunk_length must be >= 1")
+        _require(self.entropy_coef >= 0.0, "ppo.entropy_coef must be >= 0")
+        _require(self.value_coef > 0.0, "ppo.value_coef must be > 0")
+        _require(self.max_grad_norm > 0.0, "ppo.max_grad_norm must be > 0")
+        _require(self.huber_delta >= 0.0, "ppo.huber_delta must be >= 0")
+        _require(self.target_kl >= 0.0, "ppo.target_kl must be >= 0")
 
 
 @dataclass(frozen=True)
@@ -176,10 +235,25 @@ class Config:
     env: EnvConfig = field(default_factory=EnvConfig)
     comm: CommConfig = field(default_factory=CommConfig)
     train: TrainConfig = field(default_factory=TrainConfig)
+    model: ModelConfig = field(default_factory=ModelConfig)
+    ppo: PPOConfig = field(default_factory=PPOConfig)
 
     def validate(self) -> None:
         for section in dataclasses.fields(self):
             getattr(self, section.name).validate()
+        if self.train.policy == "mappo":
+            train, ppo = self.train, self.ppo
+            _require(
+                train.rollout_length % ppo.chunk_length == 0,
+                f"train.rollout_length ({train.rollout_length}) must be divisible by "
+                f"ppo.chunk_length ({ppo.chunk_length})",
+            )
+            units = train.num_envs * (train.rollout_length // ppo.chunk_length)
+            _require(
+                ppo.num_minibatches <= units,
+                f"ppo.num_minibatches ({ppo.num_minibatches}) exceeds the {units} "
+                "(env, chunk) sequences per rollout",
+            )
 
     def to_dict(self) -> dict[str, Any]:
         return dataclasses.asdict(self)

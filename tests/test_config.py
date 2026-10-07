@@ -67,7 +67,7 @@ def test_int_accepted_for_float():
         {"env": {"n_pursuers": 0}},
         {"env": {"x_size": 4, "y_size": 4, "n_pursuers": 8, "n_evaders": 30}},
         {"train": {"num_envs": 0}},
-        {"train": {"policy": "mappo"}},
+        {"train": {"policy": "mapo"}},
         {"experiment": {"seed": -1}},
         {"experiment": {"device": "gpu"}},
     ],
