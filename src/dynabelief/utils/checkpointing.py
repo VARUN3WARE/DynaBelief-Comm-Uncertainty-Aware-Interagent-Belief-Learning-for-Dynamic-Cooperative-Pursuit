@@ -100,7 +100,10 @@ def check_compatible(saved: dict[str, Any], current: dict[str, Any], resume: boo
         for section in ("env", "comm", "ppo"):
             if saved.get(section) != current.get(section):
                 problems.append(f"{section} differs (resume needs the same experiment)")
-        mutable = {"total_env_steps", "checkpoint_every_updates", "log_every_steps", "num_workers"}
+        mutable = {
+            "total_env_steps", "checkpoint_every_updates", "log_every_steps", "num_workers",
+            "torch_threads",
+        }  # fmt: skip
         saved_train = {k: v for k, v in saved.get("train", {}).items() if k not in mutable}
         current_train = {k: v for k, v in current.get("train", {}).items() if k not in mutable}
         if saved_train != current_train:

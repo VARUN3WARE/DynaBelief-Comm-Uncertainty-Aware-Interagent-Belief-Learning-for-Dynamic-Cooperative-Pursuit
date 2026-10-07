@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import os
 import platform
 import subprocess
 import sys
@@ -40,10 +41,19 @@ def _git(args: list[str], cwd: Path) -> str | None:
     return result.stdout.strip()
 
 
+GIT_COMMIT_ENV = "DYNABELIEF_GIT_COMMIT"
+
+
 def git_state(cwd: Path | None = None) -> dict[str, Any]:
-    """Commit hash and dirty flag of the repository containing ``cwd``."""
+    """Commit hash and dirty flag of the repository containing ``cwd``.
+
+    Inside a SageMaker job the code is a ``git archive`` of a clean commit with no
+    ``.git`` directory; the launcher passes that commit in ``DYNABELIEF_GIT_COMMIT``.
+    """
     cwd = cwd or Path(__file__).resolve().parent
     commit = _git(["rev-parse", "HEAD"], cwd)
+    if commit is None and os.environ.get(GIT_COMMIT_ENV):
+        return {"commit": os.environ[GIT_COMMIT_ENV], "dirty": False, "source": "git archive"}
     status = _git(["status", "--porcelain"], cwd)
     return {"commit": commit, "dirty": None if status is None else bool(status)}
 

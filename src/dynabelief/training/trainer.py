@@ -64,6 +64,8 @@ class MAPPOTrainer:
         self.log = get_logger()
         seed = config.experiment.seed
         seed_everything(seed, deterministic_torch=config.experiment.deterministic)
+        if config.train.torch_threads:
+            torch.set_num_threads(config.train.torch_threads)
 
         checkpoint = None
         if resume_from is not None:

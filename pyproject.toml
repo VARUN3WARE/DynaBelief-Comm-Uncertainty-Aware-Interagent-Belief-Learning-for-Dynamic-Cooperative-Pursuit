@@ -30,6 +30,9 @@ dev = [
     "pytest-cov>=5",
     "ruff>=0.5",
 ]
+aws = [
+    "boto3>=1.34",  # cloud/launch.py (SageMaker jobs)
+]
 viz = [
     "tensorboard>=2.15",
     "matplotlib>=3.8",

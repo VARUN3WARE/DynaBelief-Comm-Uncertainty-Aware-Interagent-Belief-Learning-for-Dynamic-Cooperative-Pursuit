@@ -160,6 +160,9 @@ class TrainConfig:
     total_env_steps: int = 256
     log_every_steps: int = 0  # random policy only: 0 = log once per rollout
     checkpoint_every_updates: int = 10  # 0 = only the final checkpoint
+    # PyTorch CPU threads in the trainer process (0 = PyTorch default). Keep small when
+    # env workers share the CPU: measured thrashing at the default on a shared CPU.
+    torch_threads: int = 0
 
     def validate(self) -> None:
         _require(
@@ -174,6 +177,7 @@ class TrainConfig:
         _require(self.total_env_steps >= 1, "train.total_env_steps must be >= 1")
         _require(self.log_every_steps >= 0, "train.log_every_steps must be >= 0")
         _require(self.checkpoint_every_updates >= 0, "train.checkpoint_every_updates must be >= 0")
+        _require(self.torch_threads >= 0, "train.torch_threads must be >= 0")
 
 
 SUPPORTED_POLICIES = ("random", "mappo")
