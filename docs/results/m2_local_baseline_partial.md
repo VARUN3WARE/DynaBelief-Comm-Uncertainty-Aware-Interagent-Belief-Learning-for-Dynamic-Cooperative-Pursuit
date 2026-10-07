@@ -7,7 +7,7 @@ plateau. Kept as the cross-hardware reproduction.
   code `d040366` (recorded as `a93d78e` before the history rewrite, same tree).
 - RTX 3050 Laptop + i5-12500H, 32 envs / 12 workers: ~800 env steps/s, 1.85 s per PPO update,
   peak VRAM 1.25 GB, env workers 0.83 GB RAM in total.
-- **Killed at update 937 / 1221 (3.84M of 5M env steps)** when the Claude Code session ended.
+- **Killed at update 937 / 1221 (3.84M of 5M env steps)** when the controlling terminal session ended.
   `latest.pt` from update 920 survives locally (not committed).
 
 Training-window statistics (last 100 training episodes; not a held-out evaluation):
