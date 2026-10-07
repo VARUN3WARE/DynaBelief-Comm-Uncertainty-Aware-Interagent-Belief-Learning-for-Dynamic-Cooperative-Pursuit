@@ -12,11 +12,19 @@ import os
 import random
 
 import numpy as np
-import torch
+
+# torch is imported lazily: environment worker processes import this module and
+# must not load libtorch (~200 MB and dozens of threads per worker).
 
 
 def seed_everything(seed: int, deterministic_torch: bool = False) -> None:
-    """Seed Python, NumPy's legacy global RNG, and PyTorch (CPU and CUDA)."""
+    """Seed Python, NumPy's legacy global RNG, and PyTorch (CPU and CUDA).
+
+    ``deterministic_torch`` makes CUDA/cuDNN pick deterministic kernels (slower) so GPU
+    runs reproduce bit-for-bit; without it GPU runs reproduce only statistically.
+    """
+    import torch
+
     if seed < 0:
         raise ValueError(f"seed must be >= 0, got {seed}")
     random.seed(seed)
@@ -28,6 +36,7 @@ def seed_everything(seed: int, deterministic_torch: bool = False) -> None:
         os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
         torch.use_deterministic_algorithms(True)
         torch.backends.cudnn.benchmark = False
+        torch.backends.cudnn.deterministic = True
 
 
 def _stream_key(name: str) -> int:

@@ -32,6 +32,9 @@ class ExperimentConfig:
     seed: int = 0
     device: str = "auto"  # "auto" | "cpu" | "cuda" | "cuda:N"
     output_dir: str = "runs"
+    # Deterministic CUDA kernels: bit-reproducible GPU runs at some speed cost. CPU runs
+    # are reproducible either way.
+    deterministic: bool = False
 
     def validate(self) -> None:
         _require(

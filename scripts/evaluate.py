@@ -16,8 +16,6 @@ import json
 import sys
 
 from dynabelief.config import config_with_overrides, load_config, parse_override
-from dynabelief.evaluation.evaluate import evaluate_checkpoint, evaluate_random
-from dynabelief.utils.checkpointing import load_checkpoint
 from dynabelief.utils.device import resolve_device
 from dynabelief.utils.logging import create_run_dir, get_logger, run_metadata, write_yaml
 
@@ -48,6 +46,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # torch-dependent imports stay inside main(): spawned env workers re-import this script.
+    from dynabelief.evaluation.evaluate import evaluate_checkpoint, evaluate_random
+    from dynabelief.utils.checkpointing import load_checkpoint
+
     argv = sys.argv[1:] if argv is None else argv
     parser = build_parser()
     args = parser.parse_args(argv)

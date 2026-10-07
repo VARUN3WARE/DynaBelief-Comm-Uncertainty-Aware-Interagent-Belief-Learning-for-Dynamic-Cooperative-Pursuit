@@ -63,7 +63,7 @@ class MAPPOTrainer:
             self.run_dir.mkdir(parents=True, exist_ok=True)
         self.log = get_logger()
         seed = config.experiment.seed
-        seed_everything(seed)
+        seed_everything(seed, deterministic_torch=config.experiment.deterministic)
 
         checkpoint = None
         if resume_from is not None:

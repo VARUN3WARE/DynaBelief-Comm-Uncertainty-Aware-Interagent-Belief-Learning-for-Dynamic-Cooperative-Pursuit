@@ -5,6 +5,7 @@ experiment:
   seed: 0
   device: auto
   output_dir: runs
+  deterministic: true       # bit-reproducible GPU training (needed for seed-level M7 results)
 
 env:
   x_size: 16

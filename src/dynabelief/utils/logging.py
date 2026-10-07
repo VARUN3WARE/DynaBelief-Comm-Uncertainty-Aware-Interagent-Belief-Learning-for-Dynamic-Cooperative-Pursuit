@@ -146,11 +146,21 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
 
 
 def resource_usage() -> dict[str, float]:
-    """Current process RSS and peak CUDA memory (GB) when available."""
+    """RSS of this process and of its worker processes, and peak CUDA memory (GB)."""
     import psutil
     import torch
 
-    usage = {"ram_rss_gb": psutil.Process().memory_info().rss / 1024**3}
+    process = psutil.Process()
+    children_rss = 0
+    for child in process.children(recursive=True):
+        try:
+            children_rss += child.memory_info().rss
+        except psutil.Error:  # child exited between listing and reading
+            pass
+    usage = {
+        "ram_rss_gb": process.memory_info().rss / 1024**3,
+        "ram_workers_rss_gb": children_rss / 1024**3,
+    }
     if torch.cuda.is_available() and torch.cuda.is_initialized():
         usage["cuda_peak_allocated_gb"] = torch.cuda.max_memory_allocated() / 1024**3
     return usage
