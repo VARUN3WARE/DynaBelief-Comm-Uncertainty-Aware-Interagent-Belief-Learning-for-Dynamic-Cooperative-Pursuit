@@ -1,0 +1,43 @@
+# M2 learning sanity check on a deliberately easy Pursuit variant.
+# Frozen evaders, capture by stepping onto one (no surround), 2 pursuers with
+# 5x5 views on a 10x10 grid: random play captures few evaders in 60 steps; a
+# working learner should quickly learn to search for and walk onto evaders.
+experiment:
+  name: debug_learning
+  seed: 0
+  device: auto
+  output_dir: runs
+
+env:
+  x_size: 10
+  y_size: 10
+  n_pursuers: 2
+  n_evaders: 3
+  obs_range: 5
+  max_cycles: 60
+  n_catch: 1
+  surround: false
+  freeze_evaders: true
+  shared_reward: true
+
+comm:
+  enabled: false
+
+train:
+  policy: mappo
+  num_envs: 16
+  num_workers: 8
+  rollout_length: 64
+  total_env_steps: 300000
+  checkpoint_every_updates: 20
+
+model:
+  hidden_dim: 64
+  conv_channels: 16
+  critic_hidden_dim: 64
+
+ppo:
+  epochs: 5
+  num_minibatches: 2
+  chunk_length: 16
+  entropy_coef: 0.01
