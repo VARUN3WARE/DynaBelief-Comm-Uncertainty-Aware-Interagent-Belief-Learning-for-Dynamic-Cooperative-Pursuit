@@ -148,6 +148,7 @@ class TrainConfig:
 
     policy: str = "random"
     num_envs: int = 4
+    num_workers: int = 0  # 0 = step envs in-process; W > 0 = W subprocess workers
     rollout_length: int = 32
     total_env_steps: int = 256
     log_every_steps: int = 0  # 0 = log once per rollout
@@ -157,6 +158,10 @@ class TrainConfig:
             self.policy in SUPPORTED_POLICIES, f"train.policy must be one of {SUPPORTED_POLICIES}"
         )
         _require(self.num_envs >= 1, "train.num_envs must be >= 1")
+        _require(
+            0 <= self.num_workers <= self.num_envs,
+            "train.num_workers must be in [0, train.num_envs]",
+        )
         _require(self.rollout_length >= 1, "train.rollout_length must be >= 1")
         _require(self.total_env_steps >= 1, "train.total_env_steps must be >= 1")
         _require(self.log_every_steps >= 0, "train.log_every_steps must be >= 0")

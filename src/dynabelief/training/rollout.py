@@ -56,7 +56,13 @@ def run_random_smoke(config: Config, run_dir: Path | None = None) -> dict[str, A
     seed = config.experiment.seed
     seed_everything(seed)
 
-    vec = PursuitVecEnv(config.env, config.train.num_envs, seed, stream="train")
+    vec = PursuitVecEnv(
+        config.env,
+        config.train.num_envs,
+        seed,
+        stream="train",
+        num_workers=config.train.num_workers,
+    )
     policy = RandomPolicy(vec.n_actions, make_rng(seed, "policy"))
     channel = (
         PacketLossChannel(

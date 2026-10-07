@@ -66,6 +66,8 @@ class PrivilegedInfo:
         pursuer_pos: ``[..., n_pursuers, 2]`` int64 ``(x, y)``.
         evader_pos: ``[..., n_evaders, 2]`` int64 ``(x, y)`` by original id; ``-1`` once caught.
         evader_alive: ``[..., n_evaders]`` bool by original evader id.
+        step: ``[...]`` int64 steps taken so far in the episode (0 right after reset).
+            Lets the centralized critic value the time left before truncation.
     """
 
     global_state: np.ndarray
@@ -73,6 +75,7 @@ class PrivilegedInfo:
     pursuer_pos: np.ndarray
     evader_pos: np.ndarray
     evader_alive: np.ndarray
+    step: np.ndarray
 
 
 @dataclass
@@ -189,6 +192,7 @@ class PursuitEnv:
             pursuer_pos=pursuer_pos,
             evader_pos=evader_pos,
             evader_alive=alive.copy(),
+            step=np.asarray(self._episode.length if self._episode else 0, dtype=np.int64),
         )
 
     def _actor(self, observations: dict[str, np.ndarray]) -> ActorObs:
@@ -278,4 +282,5 @@ def stack_privileged(items: list[PrivilegedInfo]) -> PrivilegedInfo:
         pursuer_pos=np.stack([x.pursuer_pos for x in items]),
         evader_pos=np.stack([x.evader_pos for x in items]),
         evader_alive=np.stack([x.evader_alive for x in items]),
+        step=np.stack([x.step for x in items]),
     )

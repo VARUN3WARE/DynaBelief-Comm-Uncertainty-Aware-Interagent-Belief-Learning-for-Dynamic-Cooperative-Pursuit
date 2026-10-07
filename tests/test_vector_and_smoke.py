@@ -74,3 +74,58 @@ def test_smoke_summary_reports_no_learning():
     assert summary["episodes"] == 4  # 2 envs x 24 steps / 10-step episodes
     assert summary["comm"]["messages_sent"] == 24 * 2 * 8 * 7
     assert 0.0 < summary["comm"]["drop_rate"] < 0.5
+
+
+def run_vec(num_workers: int, steps: int = 25):
+    vec = PursuitVecEnv(EnvConfig(max_cycles=7), num_envs=5, seed=3, num_workers=num_workers)
+    rng = np.random.default_rng(0)
+    actor, priv = vec.reset()
+    trace = [actor.obs.copy(), priv.global_state.copy()]
+    completed = []
+    for _ in range(steps):
+        result = vec.step(rng.integers(0, 5, size=(5, 8)))
+        trace += [result.actor.obs, result.rewards, result.done, result.privileged.step]
+        trace += [result.final_actor[i].obs for i in sorted(result.final_actor)]
+        completed += [s.as_dict() for s in result.completed]
+    vec.close()
+    return trace, completed
+
+
+def test_subprocess_backend_matches_in_process_exactly():
+    reference, ref_completed = run_vec(num_workers=0)
+    for workers in (1, 2, 5):
+        trace, completed = run_vec(num_workers=workers)
+        assert len(trace) == len(reference)
+        for a, b in zip(reference, trace, strict=True):
+            np.testing.assert_array_equal(a, b)
+        assert completed == ref_completed
+
+
+def test_worker_errors_propagate_and_close_is_idempotent():
+    from dynabelief.envs.vector import WorkerError
+
+    vec = PursuitVecEnv(EnvConfig(max_cycles=5), num_envs=2, seed=0, num_workers=2)
+    vec.reset()
+    with pytest.raises(WorkerError, match="actions must be in"):
+        vec.step(np.full((2, 8), 9))
+    vec.close()
+    vec.close()
+    with pytest.raises(RuntimeError):
+        vec.reset()
+
+
+def test_privileged_step_counts_episode_steps():
+    vec = PursuitVecEnv(EnvConfig(max_cycles=3), num_envs=1, seed=0)
+    _, priv = vec.reset()
+    assert priv.step.tolist() == [0]
+    zeros = np.zeros((1, 8), dtype=np.int64)
+    assert vec.step(zeros).privileged.step.tolist() == [1]
+    assert vec.step(zeros).privileged.step.tolist() == [2]
+    result = vec.step(zeros)  # truncates, auto-resets
+    assert result.final_privileged[0].step.tolist() == 3
+    assert result.privileged.step.tolist() == [0]
+
+
+def test_invalid_worker_count():
+    with pytest.raises(ValueError):
+        PursuitVecEnv(EnvConfig(), num_envs=2, seed=0, num_workers=3)
