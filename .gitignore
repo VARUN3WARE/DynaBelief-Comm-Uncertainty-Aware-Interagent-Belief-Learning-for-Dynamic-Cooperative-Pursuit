@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Environments
+.venv/
+venv/
+env/
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Experiment outputs (never commit)
+runs/
+reports/results/
+checkpoints/
+*.pt
+*.pth
+*.ckpt
+*.mp4
+*.gif
+events.out.tfevents.*
+wandb/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Secrets
+.env
+*.pem

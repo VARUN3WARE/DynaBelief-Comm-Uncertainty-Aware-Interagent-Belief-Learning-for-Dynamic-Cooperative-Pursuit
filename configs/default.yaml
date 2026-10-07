@@ -1,0 +1,37 @@
+# Project study environment (docs: 16x16 grid, 8 pursuers, 7x7 views, 500-step episodes).
+# n_evaders keeps PettingZoo's default of 30; it is configurable for generalization tests.
+# train.policy stays "random" until MAPPO lands in M2.
+experiment:
+  name: default
+  seed: 0
+  device: auto
+  output_dir: runs
+
+env:
+  x_size: 16
+  y_size: 16
+  n_pursuers: 8
+  n_evaders: 30
+  obs_range: 7
+  max_cycles: 500
+  n_catch: 2
+  freeze_evaders: false
+  shared_reward: true
+  surround: true
+  tag_reward: 0.01
+  catch_reward: 5.0
+  urgency_reward: -0.1
+  constraint_window: 1.0
+
+comm:
+  enabled: true
+  message_dim: 16
+  packet_loss: 0.0
+  delay_steps: 1
+  bytes_per_element: 4
+
+train:
+  policy: random
+  num_envs: 16
+  rollout_length: 128
+  total_env_steps: 20480

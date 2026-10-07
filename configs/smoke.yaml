@@ -1,0 +1,31 @@
+# M1 smoke test: random policy, short episodes, a few vector steps.
+# Checks the data path only. Nothing learns here.
+experiment:
+  name: smoke
+  seed: 0
+  device: auto
+  output_dir: runs
+
+env:
+  x_size: 16
+  y_size: 16
+  n_pursuers: 8
+  n_evaders: 30
+  obs_range: 7
+  max_cycles: 50          # short episodes so the smoke run completes several
+  n_catch: 2
+  freeze_evaders: false
+  shared_reward: true
+  surround: true
+
+comm:
+  enabled: true
+  message_dim: 16
+  packet_loss: 0.2
+  delay_steps: 1
+
+train:
+  policy: random
+  num_envs: 4
+  rollout_length: 32
+  total_env_steps: 512
