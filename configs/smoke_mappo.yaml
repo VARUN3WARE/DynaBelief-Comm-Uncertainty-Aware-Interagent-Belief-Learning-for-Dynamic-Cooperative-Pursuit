@@ -1,0 +1,31 @@
+# M2 smoke training: exercises collect -> GAE -> PPO -> checkpoint in about a minute.
+# Far too short to learn the task; it checks the training path only.
+experiment:
+  name: smoke_mappo
+  seed: 0
+  device: auto
+  output_dir: runs
+
+env:
+  max_cycles: 50
+
+comm:
+  enabled: false
+
+train:
+  policy: mappo
+  num_envs: 4
+  num_workers: 2
+  rollout_length: 32
+  total_env_steps: 1024     # 8 updates
+  checkpoint_every_updates: 4
+
+model:
+  hidden_dim: 64
+  conv_channels: 16
+  critic_hidden_dim: 64
+
+ppo:
+  epochs: 2
+  num_minibatches: 2
+  chunk_length: 16

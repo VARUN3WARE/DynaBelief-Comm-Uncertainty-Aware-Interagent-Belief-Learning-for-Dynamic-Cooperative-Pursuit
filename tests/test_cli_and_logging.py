@@ -68,11 +68,15 @@ def test_evaluate_cli(tmp_path):
     assert len(records) == 2 and all(r["packet_loss"] == 0.3 for r in records)
 
 
-def test_evaluate_rejects_checkpoint_until_m2(tmp_path):
+def test_evaluate_missing_checkpoint_fails_loudly(tmp_path):
     from scripts import evaluate
 
+    from dynabelief.utils.checkpointing import CheckpointError
+
+    with pytest.raises(CheckpointError, match="not found"):
+        evaluate.main(["--checkpoint", str(tmp_path / "missing.pt")])
     with pytest.raises(SystemExit):
-        evaluate.main(["--config", str(write_tiny_config(tmp_path)), "--checkpoint", "x.pt"])
+        evaluate.main([])  # neither --config nor --checkpoint
 
 
 def test_jsonl_refuses_non_finite(tmp_path):

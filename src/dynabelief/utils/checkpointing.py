@@ -39,15 +39,16 @@ def rng_state(minibatch_generator: torch.Generator | None = None) -> dict[str, A
 def restore_rng_state(
     state: dict[str, Any], minibatch_generator: torch.Generator | None = None
 ) -> None:
+    # RNG states must be CPU ByteTensors even if the checkpoint was mapped to a GPU.
     random.setstate(state["python"])
     np.random.set_state(state["numpy"])  # noqa: NPY002
-    torch.set_rng_state(state["torch_cpu"])
+    torch.set_rng_state(state["torch_cpu"].cpu())
     if state.get("torch_cuda") is not None and torch.cuda.is_available():
-        torch.cuda.set_rng_state_all(state["torch_cuda"])
+        torch.cuda.set_rng_state_all([s.cpu() for s in state["torch_cuda"]])
     if minibatch_generator is not None:
         if "minibatch" not in state:
             raise CheckpointError("checkpoint has no minibatch generator state")
-        minibatch_generator.set_state(state["minibatch"])
+        minibatch_generator.set_state(state["minibatch"].cpu())
 
 
 def save_checkpoint(path: str | Path, payload: dict[str, Any]) -> Path:

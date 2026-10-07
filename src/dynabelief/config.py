@@ -244,6 +244,11 @@ class Config:
         if self.train.policy == "mappo":
             train, ppo = self.train, self.ppo
             _require(
+                not self.comm.enabled,
+                "train.policy=mappo is the No-Communication baseline; set comm.enabled: false "
+                "(learned communication arrives with TarMAC in M3)",
+            )
+            _require(
                 train.rollout_length % ppo.chunk_length == 0,
                 f"train.rollout_length ({train.rollout_length}) must be divisible by "
                 f"ppo.chunk_length ({ppo.chunk_length})",
@@ -373,6 +378,12 @@ def load_config(path: str | Path, overrides: dict[str, Any] | None = None) -> Co
         raw = yaml.load(handle, Loader=_UniqueKeyLoader) or {}  # noqa: S506 - SafeLoader subclass
     if not isinstance(raw, dict):
         raise ConfigError(f"{path}: config root must be a mapping")
+    return config_with_overrides(raw, overrides)
+
+
+def config_with_overrides(raw: dict[str, Any], overrides: dict[str, Any] | None = None) -> Config:
+    """Apply dotted overrides to a nested mapping (copied), then build and validate."""
+    raw = {k: dict(v) if isinstance(v, dict) else v for k, v in raw.items()}
     for dotted, value in (overrides or {}).items():
         section, _, key = dotted.partition(".")
         if not key:

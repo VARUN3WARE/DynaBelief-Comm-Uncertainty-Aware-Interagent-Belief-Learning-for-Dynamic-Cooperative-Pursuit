@@ -1,0 +1,52 @@
+# M2 No-Communication MAPPO baseline on the study environment.
+# Hyperparameters follow MAPPO defaults; they get frozen before M7 comparisons.
+experiment:
+  name: no_comm
+  seed: 0
+  device: auto
+  output_dir: runs
+
+env:
+  x_size: 16
+  y_size: 16
+  n_pursuers: 8
+  n_evaders: 30
+  obs_range: 7
+  max_cycles: 500
+  n_catch: 2
+  freeze_evaders: false
+  shared_reward: true
+  surround: true
+
+comm:
+  enabled: false            # the No-Comm baseline
+
+train:
+  policy: mappo
+  num_envs: 16
+  num_workers: 8
+  rollout_length: 128
+  total_env_steps: 5000000
+  checkpoint_every_updates: 20
+
+model:
+  hidden_dim: 128
+  conv_channels: 32
+  critic_hidden_dim: 128
+
+ppo:
+  lr_actor: 0.0005
+  lr_critic: 0.0005
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip_eps: 0.2
+  value_clip_eps: 0.2
+  epochs: 5
+  num_minibatches: 2
+  chunk_length: 16
+  entropy_coef: 0.01
+  value_coef: 1.0
+  max_grad_norm: 10.0
+  huber_delta: 10.0
+  use_value_norm: true
+  normalize_advantages: true

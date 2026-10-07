@@ -29,11 +29,18 @@ Observation channels: 0 = wall / obstacle / out-of-bounds, 1 = pursuer count
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from typing import Any
 
-import numpy as np
-from pettingzoo.sisl import pursuit_v4
+# PettingZoo's Pursuit calls pygame.init(), and SDL then installs a C-level SIGTERM
+# handler that swallows the signal. Worker processes would ignore terminate() and
+# a crashing or killed training run would hang at exit. This SDL hint keeps the
+# default signal handlers; it must be set before pygame initializes.
+os.environ.setdefault("SDL_NO_SIGNAL_HANDLERS", "1")
+
+import numpy as np  # noqa: E402
+from pettingzoo.sisl import pursuit_v4  # noqa: E402
 
 from dynabelief.config import EnvConfig
 
