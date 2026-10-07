@@ -80,12 +80,21 @@ class _EnvStep:
 class EnvGroup:
     """Sub-environments with fixed GLOBAL indices; shared by both backends."""
 
-    def __init__(self, config: EnvConfig, env_indices: list[int], seed: int, stream: str) -> None:
+    def __init__(
+        self,
+        config: EnvConfig,
+        env_indices: list[int],
+        seed: int,
+        stream: str,
+        episode_index: list[int] | None = None,
+    ) -> None:
         self.env_indices = list(env_indices)
         self.seed = seed
         self.stream = stream
         self.envs = [PursuitEnv(config) for _ in self.env_indices]
-        self.episode_index = [0] * len(self.env_indices)
+        self.episode_index = list(episode_index or [0] * len(self.env_indices))
+        if len(self.episode_index) != len(self.env_indices):
+            raise ValueError("episode_index must have one entry per env")
 
     def _reset_one(self, local: int) -> tuple[ActorObs, PrivilegedInfo]:
         global_index = self.env_indices[local]
@@ -133,11 +142,12 @@ def _worker(
     env_indices: list[int],
     seed: int,
     stream: str,
+    episode_index: list[int],
 ) -> None:
     parent_remote.close()
     group = None
     try:
-        group = EnvGroup(config, env_indices, seed, stream)
+        group = EnvGroup(config, env_indices, seed, stream, episode_index)
         remote.send(("ok", None))
         while True:
             cmd, data = remote.recv()
@@ -145,6 +155,8 @@ def _worker(
                 remote.send(("ok", group.reset()))
             elif cmd == "step":
                 remote.send(("ok", group.step(data)))
+            elif cmd == "episode_index":
+                remote.send(("ok", list(group.episode_index)))
             elif cmd == "close":
                 break
             else:
@@ -174,12 +186,18 @@ class PursuitVecEnv:
         seed: int,
         stream: str = "train",
         num_workers: int = 0,
+        episode_index: list[int] | None = None,
     ) -> None:
+        """``episode_index`` (one per env) resumes the per-env episode counters, so a
+        restarted run continues with the next unseen episode seeds."""
         if num_envs < 1:
             raise ValueError(f"num_envs must be >= 1, got {num_envs}")
         if not 0 <= num_workers <= num_envs:
             raise ValueError(f"num_workers must be in [0, num_envs={num_envs}], got {num_workers}")
         config.validate()
+        start_index = list(episode_index or [0] * num_envs)
+        if len(start_index) != num_envs or min(start_index) < 0:
+            raise ValueError(f"episode_index must be {num_envs} non-negative ints")
         self.config = config
         self.num_envs = num_envs
         self.seed = seed
@@ -197,7 +215,9 @@ class PursuitVecEnv:
         probe.close()
 
         if num_workers == 0:
-            self._local: EnvGroup | None = EnvGroup(config, list(range(num_envs)), seed, stream)
+            self._local: EnvGroup | None = EnvGroup(
+                config, list(range(num_envs)), seed, stream, start_index
+            )
             self._remotes: list[Connection] = []
             self._processes: list[Any] = []
             self._chunks = [list(range(num_envs))]
@@ -210,7 +230,15 @@ class PursuitVecEnv:
                 parent, child = ctx.Pipe()
                 proc = ctx.Process(
                     target=_worker,
-                    args=(child, parent, config, chunk, seed, stream),
+                    args=(
+                        child,
+                        parent,
+                        config,
+                        chunk,
+                        seed,
+                        stream,
+                        [start_index[i] for i in chunk],
+                    ),
                     daemon=True,
                 )
                 proc.start()
@@ -238,14 +266,21 @@ class PursuitVecEnv:
         if self._closed:
             raise RuntimeError("PursuitVecEnv is closed")
         if self._local is not None:
-            group_call = self._local.reset if cmd == "reset" else self._local.step
-            return group_call() if cmd == "reset" else group_call(per_chunk[0])
+            if cmd == "reset":
+                return self._local.reset()
+            return self._local.step(per_chunk[0])
         for remote, data in zip(self._remotes, per_chunk, strict=True):
             remote.send((cmd, data))
         out: list[Any] = []
         for remote in self._remotes:
             out.extend(self._receive(remote))
         return out
+
+    def episode_index(self) -> list[int]:
+        """Next episode number of every sub-environment (for checkpoints)."""
+        if self._local is not None:
+            return list(self._local.episode_index)
+        return self._gather("episode_index", [None] * len(self._chunks))
 
     def reset(self) -> tuple[ActorObs, PrivilegedInfo]:
         """Start a fresh episode in every sub-environment."""

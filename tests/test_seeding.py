@@ -42,9 +42,9 @@ def test_negative_seed_rejected():
 
 def test_seed_everything_reproduces_torch_and_numpy():
     seed_everything(123)
-    t1, n1 = torch.rand(4), np.random.rand(4)  # noqa: NPY002
+    t1, n1 = torch.rand(4), np.random.rand(4)
     seed_everything(123)
-    t2, n2 = torch.rand(4), np.random.rand(4)  # noqa: NPY002
+    t2, n2 = torch.rand(4), np.random.rand(4)
     assert torch.equal(t1, t2)
     np.testing.assert_array_equal(n1, n2)
 

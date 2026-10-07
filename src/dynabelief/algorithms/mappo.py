@@ -109,6 +109,24 @@ class MAPPO:
         )
         self.value_norm = ValueNorm().to(self.device) if config.use_value_norm else None
 
+    # ------------------------------------------------------------ state io
+    def state_dict(self) -> dict:
+        return {
+            "policy": self.policy.state_dict(),
+            "actor_optimizer": self.actor_optimizer.state_dict(),
+            "critic_optimizer": self.critic_optimizer.state_dict(),
+            "value_norm": self.value_norm.state_dict() if self.value_norm is not None else None,
+        }
+
+    def load_state_dict(self, state: dict) -> None:
+        self.policy.load_state_dict(state["policy"])
+        self.actor_optimizer.load_state_dict(state["actor_optimizer"])
+        self.critic_optimizer.load_state_dict(state["critic_optimizer"])
+        if (state["value_norm"] is None) != (self.value_norm is None):
+            raise ValueError("checkpoint and config disagree on ppo.use_value_norm")
+        if self.value_norm is not None:
+            self.value_norm.load_state_dict(state["value_norm"])
+
     # ---------------------------------------------------------------- values
     def _to_return_units(self, raw: torch.Tensor) -> torch.Tensor:
         return self.value_norm.denormalize(raw) if self.value_norm is not None else raw
