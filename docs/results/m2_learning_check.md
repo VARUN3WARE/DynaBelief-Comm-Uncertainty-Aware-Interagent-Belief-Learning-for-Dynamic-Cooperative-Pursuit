@@ -6,7 +6,7 @@ centralized critic → GAE → PPO) learn on the real simulator?
 **Setup** (`configs/debug_learning.yaml`): 10×10 grid, 2 pursuers with 5×5 views,
 3 frozen evaders, capture by stepping onto an evader (`surround: false`, `n_catch: 1`),
 60-step episodes. Trained 300k env steps (16 envs × 64 steps, 8 workers, seed 0) on an
-RTX 3050 Laptop + i5-12500H: **2 min 4 s, ~2,400 env steps/s**. Code at `d01d292`.
+RTX 3050 Laptop + i5-12500H: **2 min 4 s, ~2,400 env steps/s**. Code at `2259b17`.
 
 **Held-out evaluation:** 100 episodes from the `eval` seed stream, identical episodes
 for every row.
