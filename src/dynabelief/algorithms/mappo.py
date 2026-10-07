@@ -82,6 +82,13 @@ def ppo_loss_terms(
     )
 
 
+def normalize_advantages(advantages: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    """Standardize with statistics of valid entries only; invalid entries are left as-is
+    (they are masked out of every loss)."""
+    valid = advantages[mask]
+    return (advantages - valid.mean()) / (valid.std() + 1e-8)
+
+
 def explained_variance(predicted: torch.Tensor, target: torch.Tensor, mask: torch.Tensor) -> float:
     pred, tgt = predicted[mask], target[mask]
     var = tgt.var(unbiased=False)
@@ -206,8 +213,7 @@ class MAPPO:
 
         advantages = buffer.advantages
         if cfg.normalize_advantages:
-            valid = advantages[mask]
-            advantages = (advantages - valid.mean()) / (valid.std() + 1e-8)
+            advantages = normalize_advantages(advantages, mask)
 
         sums: dict[str, float] = {}
         n_steps = 0

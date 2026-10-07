@@ -22,10 +22,15 @@ for every row.
 **Observations**
 
 - Capture rate passes 0.98 by ~50k env steps; the critic's explained variance reaches 0.94.
-- **Reward farming:** after ~150k steps the return keeps rising while episodes get
-  *longer* (≈17 → 21 steps). The agents learned to stay next to the frozen evaders and
-  collect the +0.01 tag reward before capturing. Return alone is therefore a misleading
-  success metric for Pursuit; M7 reports capture rate and time-to-capture first.
+- **Joint captures (reward property of Pursuit):** after ~150k steps the return keeps
+  rising while episodes get *longer* (≈17 → 21 steps). PettingZoo credits `catch_reward` to
+  every pursuer on the evader's cell, so with the shared reward two pursuers stepping on
+  together earn 5.0 each instead of 2.5. The agents learn to wait for each other. Measured
+  from the raw episodes: catch reward per capture, (return + 0.1·length) / captures,
+  rises from 2.56 to 3.51 over training (2.5 = all solo, 5.0 = all joint). Waiting is not
+  free: urgency is −0.1 per step against +0.01 per tag. Return therefore mixes speed and
+  coordination; M7 reports capture rate and time-to-capture first.
+  *(Corrected after the M2 review: an earlier version wrongly blamed the tag reward.)*
 - Approximate KL shows occasional spikes (≤ 0.09) once entropy is low (< 0.3).
   `ppo.target_kl` is available if this becomes a problem on the full task.
 

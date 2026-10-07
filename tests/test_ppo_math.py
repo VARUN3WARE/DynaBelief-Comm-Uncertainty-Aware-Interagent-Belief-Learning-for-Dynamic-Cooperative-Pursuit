@@ -344,3 +344,92 @@ def test_value_clip_centre_is_critics_own_prediction():
         # Before any critic step, prediction == clip centre, so clipping changes nothing.
         torch.testing.assert_close(terms.value_loss, unclipped.value_loss, rtol=1e-4, atol=1e-5)
     assert E and N
+
+
+# ------------------------------------------------- review gaps: masks & update terms
+def test_masked_entries_do_not_affect_value_loss_or_entropy():
+    def terms(mask, poison):
+        n = torch.tensor([0.1, 0.2, 0.0])
+        new_v = torch.tensor([1.0, 2.0, 50.0 if poison else 0.0])
+        ent = torch.tensor([1.0, 0.5, 99.0 if poison else 0.0])
+        return ppo_loss_terms(n, torch.zeros(3), torch.ones(3), ent, new_v, torch.zeros(3),
+                              torch.tensor([1.5, 1.0, -50.0 if poison else 0.0]),
+                              torch.tensor(mask), 0.2, 0.2, 1.0)  # fmt: skip
+
+    a, b = terms([True, True, False], poison=True), terms([True, True, False], poison=False)
+    assert a.value_loss.item() == pytest.approx(b.value_loss.item())
+    assert a.entropy.item() == pytest.approx(b.entropy.item()) == pytest.approx(0.75)
+
+
+def test_advantage_normalization_uses_valid_entries_only():
+    from dynabelief.algorithms.mappo import normalize_advantages
+
+    adv = torch.tensor([1.0, 2.0, 3.0, 1000.0])
+    mask = torch.tensor([True, True, True, False])
+    out = normalize_advantages(adv, mask)
+    torch.testing.assert_close(out[:3], (adv[:3] - 2.0) / (adv[:3].std() + 1e-8))
+    assert out[:3].mean().abs() < 1e-6
+
+
+def peaked_policy():
+    policy = tiny_policy()
+    with torch.no_grad():
+        policy.actor.policy_head.bias.copy_(torch.tensor([4.0, 0.0, 0.0, 0.0, 0.0]))
+    return policy
+
+
+def mean_entropy(policy, buf):
+    logits = policy.actor.unroll(buf.obs, buf.actor_hidden[0], buf.episode_start)
+    return Categorical(logits=logits).entropy().mean().item()
+
+
+@pytest.mark.parametrize("coef, expect_increase", [(0.5, True), (0.0, False)])
+def test_entropy_bonus_sign(coef, expect_increase):
+    """Zero advantages: only the entropy bonus moves the policy, and it must raise entropy."""
+    policy = peaked_policy()
+    buf = fill_buffer(policy)
+    buf.rewards.zero_()
+    buf.values.zero_()
+    buf.final_values.zero_()
+    algo = MAPPO(policy, PPOConfig(epochs=3, chunk_length=4, entropy_coef=coef, lr_actor=1e-2),
+                 "cpu", torch.Generator().manual_seed(0))  # fmt: skip
+    algo.compute_returns(buf, torch.zeros(3, 2))
+    before = mean_entropy(policy, buf)
+    algo.update(buf)
+    after = mean_entropy(policy, buf)
+    if expect_increase:
+        assert after > before + 0.05
+    else:
+        assert after == pytest.approx(before, abs=1e-3)
+
+
+def test_kl_early_stop_halts_after_first_epoch():
+    policy = tiny_policy()
+    buf = fill_buffer(policy)
+    cfg = PPOConfig(epochs=5, num_minibatches=2, chunk_length=4, target_kl=1e-9, lr_actor=1e-2)
+    algo = MAPPO(policy, cfg, "cpu", torch.Generator().manual_seed(0))
+    algo.compute_returns(buf, torch.zeros(3, 2))
+    metrics = algo.update(buf)
+    assert metrics["kl_early_stop"] == 1.0 and metrics["gradient_steps"] == 2
+
+
+def test_critic_fits_fixed_returns():
+    policy = tiny_policy()
+    buf = fill_buffer(policy)
+    algo = MAPPO(policy, PPOConfig(epochs=4, chunk_length=4, lr_critic=3e-3), "cpu",
+                 torch.Generator().manual_seed(0))  # fmt: skip
+    algo.compute_returns(buf, torch.zeros(3, 2))
+    target = buf.returns.clone()
+
+    def critic_mse():
+        preds = torch.stack([algo.values(buf.global_state[t], buf.pursuer_pos[t], buf.step[t])
+                             for t in range(buf.T)])  # fmt: skip
+        return (preds - target).pow(2).mean().item()
+
+    before = critic_mse()
+    for _ in range(15):
+        for t in range(buf.T):  # keep the stored predictions current, as a rollout would
+            buf.values[t] = algo.values(buf.global_state[t], buf.pursuer_pos[t], buf.step[t])
+        buf.returns.copy_(target)
+        algo.update(buf)
+    assert critic_mse() < 0.5 * before

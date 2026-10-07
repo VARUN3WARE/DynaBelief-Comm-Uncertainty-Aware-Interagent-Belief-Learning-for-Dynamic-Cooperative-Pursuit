@@ -200,3 +200,99 @@ def test_worker_dying_while_idle_raises_worker_error():
         for _ in range(3):  # the first send may still succeed into the pipe buffer
             vec.step(np.zeros((2, 8), dtype=np.int64))
     assert vec._closed
+
+
+# ------------------------------------------------------ review gaps: eval & resume
+def test_evaluation_really_uses_checkpoint_weights(tmp_path):
+    """A checkpoint whose actor always picks 'stay' must make the evaluated agent stay."""
+    from dynabelief.evaluation.evaluate import MAPPOAgent, load_policy_for_eval
+    from dynabelief.utils.checkpointing import save_checkpoint
+
+    config = tiny()
+    MAPPOTrainer(config, "cpu", run_dir=tmp_path).train()
+    data = load_checkpoint(tmp_path / "checkpoints" / "final.pt")
+    bias = data["learner"]["policy"]["actor.policy_head.bias"]
+    bias.copy_(torch.tensor([-50.0, -50.0, -50.0, -50.0, 50.0]))
+    save_checkpoint(tmp_path / "stay.pt", data)
+
+    policy, _ = load_policy_for_eval(tmp_path / "stay.pt", config, "cpu")
+    for name, value in policy.state_dict().items():
+        assert torch.equal(value, data["learner"]["policy"][name]), name
+    agent = MAPPOAgent(policy, seed=0, device="cpu", deterministic=False)
+    env = PursuitEnv(config.env)
+    actor, _ = env.reset(0)
+    agent.reset(0)
+    for _ in range(5):
+        actions = agent.act(actor)
+        assert (actions == 4).all()
+        actor = env.step(actions).actor
+
+
+def test_mappo_agent_resets_memory_and_greedy_is_argmax(tmp_path):
+    from dynabelief.evaluation.evaluate import MAPPOAgent, load_policy_for_eval
+
+    config = tiny()
+    MAPPOTrainer(config, "cpu", run_dir=tmp_path).train()
+    policy, _ = load_policy_for_eval(tmp_path / "checkpoints" / "final.pt", config, "cpu")
+    env = PursuitEnv(config.env)
+    actor, _ = env.reset(3)
+    agent = MAPPOAgent(policy, seed=0, device="cpu", deterministic=True)
+    agent.reset(0)
+    first = agent.act(actor)
+    obs = torch.as_tensor(actor.obs).unsqueeze(0)
+    logits, _ = policy.actor.step(obs, policy.actor.initial_state(1, 8), torch.tensor([True]))
+    np.testing.assert_array_equal(first, logits.argmax(-1)[0].numpy())
+    agent.act(actor)  # advance memory
+    agent.reset(1)
+    assert agent.hidden is None and agent.start
+    np.testing.assert_array_equal(agent.act(actor), first)  # same obs, fresh memory
+
+
+def test_resume_restores_optimizers_value_norm_and_rng(tmp_path):
+    first = MAPPOTrainer(tiny(), "cpu", run_dir=tmp_path / "a")
+    first.train()
+    final = tmp_path / "a" / "checkpoints" / "final.pt"
+    saved = load_checkpoint(final)
+    resumed = MAPPOTrainer(tiny(total_env_steps=64), "cpu", resume_from=final)
+    for opt_name in ("actor_optimizer", "critic_optimizer"):
+        got = getattr(resumed.algo, opt_name).state_dict()["state"]
+        want = saved["learner"][opt_name]["state"]
+        assert got.keys() == want.keys() and len(got) > 0
+        for k in got:
+            assert torch.equal(got[k]["exp_avg_sq"], want[k]["exp_avg_sq"])
+            assert int(got[k]["step"]) == int(want[k]["step"])
+    for key, value in resumed.algo.value_norm.state_dict().items():
+        assert torch.equal(value, saved["learner"]["value_norm"][key]), key
+    assert resumed.algo.value_norm.count.item() > 0
+    assert torch.equal(resumed.algo.generator.get_state(), saved["rng"]["minibatch"])
+    assert torch.equal(torch.get_rng_state(), saved["rng"]["torch_cpu"])
+    resumed.vec.close()
+
+
+def test_collect_wires_rollout_data_consistently():
+    """One rollout through the real trainer: every buffer field lines up in time."""
+
+    trainer = MAPPOTrainer(tiny(rollout_length=16), "cpu")
+    cfg = trainer.config.train
+    actor, priv = trainer.vec.reset()
+    hidden = trainer.policy.actor.initial_state(cfg.num_envs, trainer.vec.n_agents)
+    start = torch.ones(cfg.num_envs, dtype=torch.bool)
+    trainer._collect(actor, priv, hidden, start, None)
+    trainer.vec.close()
+    buf = trainer.buffer
+    assert buf.episode_start[0].all()
+    done = buf.terminated | buf.truncated
+    assert torch.equal(buf.episode_start[1:], done[:-1])
+    for t in range(1, buf.T):
+        expected_step = torch.where(buf.episode_start[t], 0, buf.step[t - 1] + 1)
+        assert torch.equal(buf.step[t], expected_step)
+        _, h = trainer.policy.actor.step(buf.obs[t - 1], buf.actor_hidden[t - 1],
+                                         buf.episode_start[t - 1])  # fmt: skip
+        torch.testing.assert_close(buf.actor_hidden[t], h)
+    for t in range(buf.T):
+        v = trainer.algo.values(buf.global_state[t], buf.pursuer_pos[t], buf.step[t])
+        torch.testing.assert_close(buf.values[t], v)
+    assert buf.truncated.any(), "max_cycles=12 within 16 steps must truncate"
+    assert (buf.final_values[~buf.truncated] == 0).all()
+    assert (buf.final_values[buf.truncated] != 0).any()
+    assert torch.isfinite(buf.advantages).all() and torch.isfinite(buf.returns).all()
