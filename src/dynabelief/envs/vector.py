@@ -254,7 +254,7 @@ class PursuitVecEnv:
     def _receive(self, remote: Connection) -> Any:
         try:
             status, payload = remote.recv()
-        except EOFError as exc:
+        except (EOFError, OSError) as exc:  # OSError covers ConnectionResetError
             self.close()
             raise WorkerError("environment worker exited unexpectedly") from exc
         if status == "error":
@@ -270,7 +270,11 @@ class PursuitVecEnv:
                 return self._local.reset()
             return self._local.step(per_chunk[0])
         for remote, data in zip(self._remotes, per_chunk, strict=True):
-            remote.send((cmd, data))
+            try:
+                remote.send((cmd, data))
+            except OSError as exc:  # BrokenPipeError: the worker died while idle
+                self.close()
+                raise WorkerError("environment worker exited unexpectedly") from exc
         out: list[Any] = []
         for remote in self._remotes:
             out.extend(self._receive(remote))

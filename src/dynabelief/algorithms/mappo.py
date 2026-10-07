@@ -11,6 +11,7 @@ never share gradients. Means are taken over valid (agent_mask) entries only.
 
 from __future__ import annotations
 
+import copy
 import math
 from dataclasses import dataclass
 
@@ -161,7 +162,12 @@ class MAPPO:
         buffer.returns.copy_(returns)
 
     # --------------------------------------------------------------- update
-    def _minibatch_terms(self, mb: Minibatch) -> LossTerms:
+    def _minibatch_terms(self, mb: Minibatch, old_norm: ValueNorm | None) -> LossTerms:
+        """``old_norm``: ValueNorm as it was when the rollout's values were predicted.
+
+        The value-clip centre must be the critic's own earlier output, i.e. the stored
+        values normalized with the OLD stats. Targets use the updated stats.
+        """
         length, batch, n_agents = mb.actions.shape
         logits = self.policy.actor.unroll(mb.obs, mb.actor_hidden0, mb.episode_start)
         dist = Categorical(logits=logits)
@@ -175,7 +181,7 @@ class MAPPO:
             advantages=mb.advantages,
             entropy=dist.entropy(),
             new_values=raw_values,
-            old_values=self._to_critic_units(mb.old_values),
+            old_values=old_norm.normalize(mb.old_values) if old_norm is not None else mb.old_values,
             value_targets=self._to_critic_units(mb.returns),
             mask=mb.agent_mask,
             clip_eps=cfg.clip_eps,
@@ -194,6 +200,7 @@ class MAPPO:
             "return_mean": float(buffer.returns[mask].mean()),
             "value_mean": float(buffer.values[mask].mean()),
         }
+        old_norm = copy.deepcopy(self.value_norm) if self.value_norm is not None else None
         if self.value_norm is not None:
             self.value_norm.update(buffer.returns[mask])
 
@@ -211,7 +218,7 @@ class MAPPO:
             for mb in buffer.minibatches(
                 cfg.num_minibatches, cfg.chunk_length, self.generator, advantages
             ):
-                terms = self._minibatch_terms(mb)
+                terms = self._minibatch_terms(mb, old_norm)
                 actor_loss = terms.policy_loss - cfg.entropy_coef * terms.entropy
                 critic_loss = cfg.value_coef * terms.value_loss
                 total = actor_loss + critic_loss

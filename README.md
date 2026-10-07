@@ -13,15 +13,16 @@ Object Search*, IEEE T-RO 2026 ([code](https://github.com/JernejPuc/centurymaze)
 |---|---|---|
 | M0 | packaging, strict config, seeding, logging, CLIs, tests | done |
 | M1 | Pursuit wrapper, information boundary, packet-loss channel, random-policy smoke test | done |
-| M2 | No-Communication MAPPO | next |
+| M2 | No-Communication MAPPO | implemented; learning check passed; full baseline run in progress |
 | M3 | TarMAC-MAPPO | |
 | M4 | point-belief DIABL + uniform InfER | |
 | M5 | D-DIABL | |
 | M6 | SP-InfER | |
 | M7 | three-seed evaluation | |
 
-**No model is trained yet.** `train.policy: random` is the only policy, and its run summaries
-record `"learning": false`.
+`train.policy: random` runs a no-learning smoke rollout (summaries record `"learning": false`).
+`train.policy: mappo` trains the No-Communication MAPPO baseline. The first learning result is
+in [docs/results/m2_learning_check.md](docs/results/m2_learning_check.md).
 
 ## Setup (Linux)
 
@@ -54,7 +55,24 @@ Verify:
 
 # Simulator throughput (for sizing training runs)
 .venv/bin/python scripts/benchmark_env.py --config configs/default.yaml --steps 5000
+
+# No-Communication MAPPO
+.venv/bin/python scripts/train.py --config configs/smoke_mappo.yaml       # 1-minute pipeline check
+.venv/bin/python scripts/train.py --config configs/debug_learning.yaml    # easy task, learns in ~2 min
+.venv/bin/python scripts/train.py --config configs/no_comm.yaml           # study baseline
+.venv/bin/python scripts/train.py --config configs/no_comm.yaml --resume runs/<run>/checkpoints/latest.pt
+
+# Evaluate a checkpoint (uses the config saved inside it); generalization via --set
+.venv/bin/python scripts/evaluate.py --checkpoint runs/<run>/checkpoints/final.pt --episodes 50
+.venv/bin/python scripts/evaluate.py --checkpoint runs/<run>/checkpoints/final.pt --set env.n_pursuers=6
+
+# Learning curves from the raw metrics
+.venv/bin/python scripts/plot_metrics.py runs/<run>
 ```
+
+MAPPO runs also write `checkpoints/{latest,best,final}.pt`. `best.pt` is selected by the
+training-window capture rate and is meant for picking a checkpoint only; reported numbers come
+from `evaluate.py` on the held-out evaluation seeds.
 
 Each run writes `runs/<name>_s<seed>_<utc>/` with `config.yaml` (resolved), `metadata.yaml`
 (git commit + dirty flag, package versions, Python, device), `episodes.jsonl` (raw per-episode
@@ -81,6 +99,18 @@ readable at `t+1`. Masks are receiver-major `[receiver, sender]` with no self-me
 Evaluation uses the separate `"eval"` stream, with a per-episode packet-loss stream, so
 every method is evaluated on identical episodes with identical drop patterns.
 
+**MAPPO (M2).** Parameter-shared CNN → GRU actor on local views only; centralized critic
+V(s, i) on the global state plus a one-hot of agent i's cell plus the episode time fraction.
+GAE stops bootstrapping on termination but bootstraps V(terminal obs) on truncation. Updates use
+recurrent chunks of `ppo.chunk_length` steps over (env, chunk) units, keeping all agents of an
+env together for M3's communication. Gradients do not cross chunk boundaries, so
+`chunk_length` bounds the memory horizon the GRU can be trained for. Value targets are
+normalized (ValueNorm); actor and critic use separate Adam optimizers.
+
+**Resume.** A checkpoint restores weights, both optimizers, ValueNorm, every RNG stream, and
+counters exactly. PettingZoo's simulator state cannot be serialized, so a resumed run starts each
+environment on its next episode seed (in-progress episodes are dropped).
+
 **Config.** YAML is mapped onto frozen dataclasses. Unknown or duplicate keys, wrong types,
 non-finite floats, and out-of-range values raise `ConfigError`.
 
@@ -93,6 +123,7 @@ non-finite floats, and out-of-range values raise `ConfigError`.
 | Spawning rejection-samples without a retry limit, so crowded layouts or a small `constraint_window` hang forever | `EnvConfig.validate` rejects layouts where spawning might fail (conservative: at most 39 agents per group on the default 16x16 map) |
 | Caught evaders are popped from a list, so indices shift | positions are reported by original evader id, with `-1` once caught |
 | `pettingzoo[sisl]` pulls `box2d-py` (SWIG/C++ build), which Pursuit never imports | depend on `pettingzoo` + `pygame` + `scipy` only |
+| `pygame.init()` lets SDL install a C-level SIGTERM handler that swallows the signal, so workers ignore `terminate()` and crashed runs hang at exit | `SDL_NO_SIGNAL_HANDLERS=1` is set before pygame initializes |
 
 ## Measured simulator throughput
 
@@ -105,22 +136,28 @@ PettingZoo Pursuit is pure Python. Measured on an i5-12500H with the study confi
 | 8 | ~1,900 |
 | 14 | ~2,300 |
 
-A single process needs ~7.6 h of simulator time per 10M env steps, which is why M2 will use
-subprocess vector environments.
+A single process needs ~7.6 h of simulator time per 10M env steps, so training uses
+subprocess workers (`train.num_workers`). These produce trajectories bit-identical to the
+in-process backend. Measured MAPPO training on the study config: ~690 env steps/s collection
+with 16 envs/8 workers and ~1,200 with 32 envs/12 workers. Each vector step waits for the
+slowest worker. Peak VRAM is ~1 GB and RAM ~1.4 GB.
 
 ## Repository layout
 
 ```
-configs/            smoke.yaml, default.yaml
-scripts/            train.py, evaluate.py, benchmark_env.py
+configs/            smoke.yaml, default.yaml, smoke_mappo.yaml, debug_learning.yaml, no_comm.yaml
+scripts/            train.py, evaluate.py, benchmark_env.py, plot_metrics.py
+docs/results/       milestone result notes (tables + plots from raw run data)
 src/dynabelief/
   config.py         strict dataclass config
-  envs/             pursuit.py (wrapper + boundary types), vector.py (auto-reset vector env)
+  envs/             pursuit.py (wrapper + boundary types), vector.py (auto-reset vector env, workers)
   comm/             channel.py (packet loss + message accounting)
+  models/           encoder.py (CNNs), actor_critic.py (recurrent actor, central critic)
+  algorithms/       gae.py, mappo.py (PPO losses + update)
   policies/         random_policy.py
-  training/         rollout.py (M1 smoke rollout)
-  evaluation/       evaluate.py
-  utils/            seeding.py, logging.py, device.py
+  training/         rollout.py (smoke rollout), buffer.py (recurrent minibatches), trainer.py
+  evaluation/       evaluate.py (shared eval loop, checkpoint evaluation)
+  utils/            seeding.py, logging.py, device.py, value_norm.py, checkpointing.py
 tests/
 ```
 

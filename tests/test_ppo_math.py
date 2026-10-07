@@ -313,3 +313,34 @@ def test_compute_returns_consistent_with_gae():
     adv, ret = compute_gae(buf.rewards, buf.values, nxt, buf.terminated, buf.truncated, 0.99, 0.95)
     torch.testing.assert_close(buf.advantages, adv)
     torch.testing.assert_close(buf.returns, ret)
+
+
+def test_value_clip_centre_is_critics_own_prediction():
+    """Regression: the clip centre must be the critic's output at collection time, so
+    re-normalizing it with ValueNorm stats updated on the new returns is wrong."""
+    import copy
+
+    policy = tiny_policy()
+    algo = MAPPO(policy, PPOConfig(chunk_length=4), "cpu", torch.Generator().manual_seed(0))
+    algo.value_norm.update(torch.randn(500) * 3 + 2)  # non-trivial stats from "earlier"
+    buf = fill_buffer(policy)
+    E, N = buf.E, buf.N
+    for t in range(buf.T):  # store genuine critic predictions, in return units
+        buf.values[t] = algo.values(buf.global_state[t], buf.pursuer_pos[t], buf.step[t])
+    buf.returns.copy_(torch.randn_like(buf.returns) * 10 + 20)  # shifts the stats a lot
+    old_norm = copy.deepcopy(algo.value_norm)
+    algo.value_norm.update(buf.returns.reshape(-1))
+    for mb in buf.minibatches(2, 4, torch.Generator().manual_seed(0), buf.advantages):
+        raw = policy.critic(mb.global_state.flatten(0, 1), mb.pursuer_pos.flatten(0, 1),
+                            mb.step.flatten(0, 1)).reshape(mb.old_values.shape)  # fmt: skip
+        torch.testing.assert_close(old_norm.normalize(mb.old_values), raw, rtol=1e-4, atol=1e-4)
+        assert not torch.allclose(algo.value_norm.normalize(mb.old_values), raw, atol=1e-2)
+        terms = algo._minibatch_terms(mb, old_norm)
+        unclipped = ppo_loss_terms(
+            torch.zeros(1), torch.zeros(1), torch.zeros(1), torch.zeros(1), raw,
+            old_norm.normalize(mb.old_values), algo.value_norm.normalize(mb.returns),
+            mb.agent_mask, 0.2, 0.0, algo.config.huber_delta,
+        )  # fmt: skip
+        # Before any critic step, prediction == clip centre, so clipping changes nothing.
+        torch.testing.assert_close(terms.value_loss, unclipped.value_loss, rtol=1e-4, atol=1e-5)
+    assert E and N

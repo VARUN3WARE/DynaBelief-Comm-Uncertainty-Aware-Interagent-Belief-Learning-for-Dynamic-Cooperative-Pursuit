@@ -23,8 +23,12 @@ comm:
 
 train:
   policy: mappo
-  num_envs: 16
-  num_workers: 8
+  # 32 envs x 128 steps = 4096 env steps (32k agent steps) per update. Measured on an
+  # i5-12500H: ~1,200 env steps/s collection with 12 workers vs ~690 with 16 envs/8
+  # workers (each vector step waits for the slowest worker). Keep identical across
+  # all compared methods.
+  num_envs: 32
+  num_workers: 12
   rollout_length: 128
   total_env_steps: 5000000
   checkpoint_every_updates: 20
@@ -42,7 +46,7 @@ ppo:
   clip_eps: 0.2
   value_clip_eps: 0.2
   epochs: 5
-  num_minibatches: 2
+  num_minibatches: 4
   chunk_length: 16
   entropy_coef: 0.01
   value_coef: 1.0

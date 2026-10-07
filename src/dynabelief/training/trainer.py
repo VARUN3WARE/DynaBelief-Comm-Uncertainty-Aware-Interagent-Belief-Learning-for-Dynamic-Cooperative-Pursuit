@@ -104,7 +104,8 @@ class MAPPOTrainer:
                 restore_rng_state(checkpoint["rng"], self.algo.generator)
                 self.env_steps = checkpoint["env_steps"]
                 self.update_index = checkpoint["update"]
-                self.best_score = checkpoint.get("best_score", -math.inf)
+                # best.pt is per run directory: a resumed run starts its own best tracking
+                # (the recent-episode window is not checkpointed either).
                 self.log.info(
                     "resumed from %s at update %d (%d env steps); environments start new episodes",
                     resume_from,

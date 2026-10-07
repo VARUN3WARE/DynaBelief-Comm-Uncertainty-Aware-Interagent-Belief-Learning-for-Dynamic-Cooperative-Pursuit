@@ -167,3 +167,36 @@ def test_checkpoint_evaluation_is_reproducible(tmp_path):
     b = evaluate_checkpoint(config, final, episodes=2, device="cpu")
     assert a == b
     np.testing.assert_(a["episodes"] == 2)
+
+
+def test_observations_are_contiguous_for_both_backends():
+    for workers in (0, 2):
+        vec = PursuitVecEnv(EnvConfig(max_cycles=5), num_envs=2, seed=0, num_workers=workers)
+        actor, _ = vec.reset()
+        assert actor.obs.flags["C_CONTIGUOUS"]
+        assert vec.step(np.zeros((2, 8), dtype=np.int64)).actor.obs.flags["C_CONTIGUOUS"]
+        vec.close()
+
+
+def test_training_is_identical_with_and_without_workers(tmp_path):
+    """Same seed -> bit-identical weights whether envs run in-process or in workers."""
+    states = []
+    for workers in (0, 2):
+        trainer = MAPPOTrainer(tiny(num_workers=workers), "cpu", run_dir=tmp_path / str(workers))
+        trainer.train()
+        states.append(trainer.policy.state_dict())
+    for name in states[0]:
+        assert torch.equal(states[0][name], states[1][name]), name
+
+
+def test_worker_dying_while_idle_raises_worker_error():
+    from dynabelief.envs.vector import WorkerError
+
+    vec = PursuitVecEnv(EnvConfig(max_cycles=5), num_envs=2, seed=0, num_workers=2)
+    vec.reset()
+    vec._processes[1].kill()
+    vec._processes[1].join(timeout=10)
+    with pytest.raises(WorkerError):
+        for _ in range(3):  # the first send may still succeed into the pipe buffer
+            vec.step(np.zeros((2, 8), dtype=np.int64))
+    assert vec._closed

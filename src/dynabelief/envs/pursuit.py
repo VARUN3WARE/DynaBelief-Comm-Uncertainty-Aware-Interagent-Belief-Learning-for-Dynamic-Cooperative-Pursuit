@@ -206,7 +206,11 @@ class PursuitEnv:
         missing = [a for a in self.agent_ids if a not in observations]
         if missing:
             raise RuntimeError(f"PettingZoo returned no observation for {missing}")
-        obs = np.stack([np.asarray(observations[a], dtype=np.float32) for a in self.agent_ids])
+        # PettingZoo returns transposed views; make the layout C-contiguous so the network
+        # sees identical memory layouts whether or not the obs passed through a worker pipe.
+        obs = np.ascontiguousarray(
+            np.stack([np.asarray(observations[a], dtype=np.float32) for a in self.agent_ids])
+        )
         if obs.shape[1:] != self.obs_shape:
             raise RuntimeError(f"observation shape {obs.shape[1:]} != declared {self.obs_shape}")
         if not np.isfinite(obs).all():
