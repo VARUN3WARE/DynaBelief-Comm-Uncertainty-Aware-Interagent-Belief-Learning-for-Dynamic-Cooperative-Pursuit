@@ -83,8 +83,9 @@ def training_job_request(
             "TrainingInputMode": "File",
         },
         # The DLC's training toolkit JSON-decodes every value, so encode native types
-        # (a string "20" log level crashed the toolkit's logging setup).
-        "HyperParameters": {k: json.dumps(v) for k, v in hyper.items()},
+        # (a string "20" log level crashed the toolkit's logging setup). Empty values are
+        # dropped: the toolkit turns them into a bare flag with no argument.
+        "HyperParameters": {k: json.dumps(v) for k, v in hyper.items() if v != ""},
         "ResourceConfig": {"InstanceType": instance_type, "InstanceCount": 1, "VolumeSizeInGB": 30},
         "OutputDataConfig": {"S3OutputPath": f"s3://{bucket}/{PREFIX}/output"},
         "CheckpointConfig": {

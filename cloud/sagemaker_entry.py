@@ -15,6 +15,7 @@ Launched by ``cloud/launch.py``; never run this locally. Steps:
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shutil
 import subprocess
@@ -53,18 +54,26 @@ def newest_final(runs_dir: Path) -> Path:
     return finals[-1]
 
 
-def main() -> int:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True)
-    parser.add_argument("--overrides", default="", help="';'-separated section.key=value")
+    # nargs="?": the toolkit passes a bare "--overrides" when the value is empty.
+    parser.add_argument("--overrides", nargs="?", const="", default="",
+                        help="';'-separated section.key=value")  # fmt: skip
     parser.add_argument("--eval_episodes", type=int, default=50)
     parser.add_argument("--workers", type=int, default=0, help="0 = derive from vCPUs")
     parser.add_argument("--torch_threads", type=int, default=2)
-    args, unknown = parser.parse_known_args()
+    parser.add_argument("--skip_install", action="store_true", help="local testing only")
+    args, unknown = parser.parse_known_args(argv)
     if unknown:
         print(f"ignoring unknown args {unknown}", flush=True)
+    return args
 
-    run([sys.executable, "-m", "pip", "install", "--no-cache-dir", "--quiet", "."])
+
+def main() -> int:
+    args = parse_args()
+    if not args.skip_install:
+        run([sys.executable, "-m", "pip", "install", "--no-cache-dir", "--quiet", "."])
     from dynabelief.config import load_config, parse_override
 
     overrides = [o for o in args.overrides.split(";") if o.strip()]
@@ -98,7 +107,8 @@ def main() -> int:
         if (run_dir / name).exists():
             shutil.copy2(run_dir / name, MODEL / name)
     for summary in evals_dir.glob("*/summary.json"):
-        shutil.copy2(summary, MODEL / f"eval_{summary.parent.name}.json")
+        mode = "greedy" if json.loads(summary.read_text()).get("deterministic") else "sampled"
+        shutil.copy2(summary, MODEL / f"eval_{mode}.json")
     shutil.copy2(final, MODEL / "final.pt")
     print("done", flush=True)
     return 0

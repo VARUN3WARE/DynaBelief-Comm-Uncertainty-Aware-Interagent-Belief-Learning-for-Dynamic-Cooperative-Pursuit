@@ -102,3 +102,12 @@ def test_git_state_falls_back_to_launcher_commit(monkeypatch, tmp_path):
     monkeypatch.setenv(dlog.GIT_COMMIT_ENV, "deadbeef")
     state = dlog.git_state(tmp_path)  # tmp_path is not a git repo
     assert state == {"commit": "deadbeef", "dirty": False, "source": "git archive"}
+
+
+def test_empty_overrides_are_omitted_and_bare_flag_parses():
+    hyper = request(overrides=[])["HyperParameters"]
+    assert "overrides" not in hyper
+    args = entry.parse_args(["--config", "c.yaml", "--eval_episodes", "2", "--overrides"])
+    assert args.overrides == "" and args.eval_episodes == 2
+    args = entry.parse_args(["--config", "c.yaml", "--overrides", "a.b=1;c.d=2"])
+    assert args.overrides == "a.b=1;c.d=2"
