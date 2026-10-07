@@ -13,8 +13,8 @@ Object Search*, IEEE T-RO 2026 ([code](https://github.com/JernejPuc/centurymaze)
 |---|---|---|
 | M0 | packaging, strict config, seeding, logging, CLIs, tests | done |
 | M1 | Pursuit wrapper, information boundary, packet-loss channel, random-policy smoke test | done |
-| M2 | No-Communication MAPPO | implemented, learning check passed; baseline run on SageMaker |
-| M3 | TarMAC-MAPPO | |
+| M2 | No-Communication MAPPO | done: capture rate 0.54–0.55 vs 0.029 random ([result](docs/results/m2_baseline.md)) |
+| M3 | TarMAC-MAPPO | next |
 | M4 | point-belief DIABL + uniform InfER | |
 | M5 | D-DIABL | |
 | M6 | SP-InfER | |

@@ -39,6 +39,8 @@ Commit hashes refer to the current (rewritten) history.
 | D18 | 10-07 | **Changed:** batch 16 envs / 8 workers → **32 envs × 128 steps, 12 workers** (4,096 env steps per update), fixed for all methods | Collection 690 → 1,200 env steps/s: each vector step waits for the slowest worker |
 | D19 | 10-07 | Lead every comparison with **capture rate and time-to-capture**, not return | `catch_reward` is credited to every pursuer on the evader's cell, so joint captures pay double. Measured catch reward per capture rose 2.56 → 3.51 during training. (An earlier note wrongly blamed tag-reward farming; corrected) |
 | D20 | 10-07 | Open: learning-rate decay or `target_kl` before M3 | Local baseline KL rose 0.004 → 0.036 while capture rate was flat |
+| D20b | 10-08 | **Updated:** not blocking M3 | SageMaker baseline KL settles at 0.025–0.035 (clip fraction ≈ 0.15) instead of growing. Decide once, before M7, and apply to all methods |
+| D24 | 10-08 | The M2 bar for every later method: capture rate **0.54–0.55** at 5M steps (seed 0), plateau from ~1M | [m2_baseline.md](results/m2_baseline.md); reproduced on two machines |
 
 ## Compute
 

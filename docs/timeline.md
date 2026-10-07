@@ -21,4 +21,4 @@ What happened, in order, with the commit and the key number. Decisions are in
 | `b53e9d9` | History rewritten | Co-author trailers removed at the owner's request; trees unchanged, hashes changed |
 | `6cf6daa` | Training moved to SageMaker (D22, D23) | `cloud/launch.py`, `cloud/sagemaker_entry.py`; GPU instances because CPU updates are ~10× slower |
 | `428376d` `d46390a` | Cloud smoke jobs | Two launch bugs found and fixed (hyperparameter types, empty overrides). Third smoke job **completed** on a Tesla T4; commit, metrics, evals and curves synced to S3 |
-| `d46390a` | **M2 baseline on SageMaker** (`dynabelief-no-comm-s0-20261007-173719`, `ml.g4dn.8xlarge`, 16 workers) | Running, ~750–900 env steps/s |
+| `d46390a` | **M2 baseline on SageMaker** (`dynabelief-no-comm-s0-20261007-173719`, `ml.g4dn.8xlarge`, 16 workers) | 5M steps in 1.5 h ($4.6). Held-out capture rate **0.537 / 0.553** (sampled / greedy) vs 0.029 random; plateau from ~1M steps, as on the PC ([result](results/m2_baseline.md)). **M2 complete** |

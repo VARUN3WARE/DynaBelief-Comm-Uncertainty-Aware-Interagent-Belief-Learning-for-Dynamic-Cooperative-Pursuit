@@ -1,6 +1,7 @@
 # M2 baseline, first attempt (local PC, interrupted)
 
-**Status:** superseded by the SageMaker baseline run. Kept because the plateau is a real observation.
+**Status:** superseded by the SageMaker run ([m2_baseline.md](m2_baseline.md)), which reached the same
+plateau. Kept as the cross-hardware reproduction.
 
 - Config `configs/no_comm.yaml` (16×16, 8 pursuers, 30 evaders, 500 steps, seed 0, deterministic GPU),
   code `d040366` (recorded as `a93d78e` before the history rewrite, same tree).

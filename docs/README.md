@@ -10,7 +10,8 @@
 Results so far:
 
 - [m2_learning_check.md](results/m2_learning_check.md): MAPPO solves an easy Pursuit variant (capture rate 0.39 → 1.00)
-- [m2_local_baseline_partial.md](results/m2_local_baseline_partial.md): first full-task baseline, interrupted at 3.84M steps; plateau at ~0.55 capture rate
+- [m2_baseline.md](results/m2_baseline.md): **M2 baseline** (No-Comm MAPPO, SageMaker): capture rate 0.54–0.55 vs 0.029 random on 50 held-out episodes
+- [m2_local_baseline_partial.md](results/m2_local_baseline_partial.md): first attempt on the PC, interrupted at 3.84M steps (superseded; same plateau)
 
 Rules: numbers are computed from saved raw run records (`metrics.jsonl`, `episodes.jsonl`), not typed
 in by hand. Each note states the commit, config, seed and hardware. Superseded results are kept and
