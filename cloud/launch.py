@@ -180,9 +180,17 @@ def cmd_train(args: argparse.Namespace) -> int:
 
 def cmd_status(args: argparse.Namespace) -> int:
     sm = session().client("sagemaker")
-    jobs = sm.list_training_jobs(NameContains=PREFIX, SortBy="CreationTime",
-                                 SortOrder="Descending", MaxResults=args.n)  # fmt: skip
-    for job in jobs["TrainingJobSummaries"]:
+    # NameContains filters page by page, so pages can be empty while more jobs exist
+    # (other projects share this account): paginate until n matches are found.
+    found = []
+    pages = sm.get_paginator("list_training_jobs").paginate(
+        NameContains=PREFIX, SortBy="CreationTime", SortOrder="Descending"
+    )
+    for page in pages:
+        found += page["TrainingJobSummaries"]
+        if len(found) >= args.n:
+            break
+    for job in found[: args.n]:
         d = sm.describe_training_job(TrainingJobName=job["TrainingJobName"])
         secs = d.get("TrainingTimeInSeconds") or (
             (datetime.now(UTC) - d["CreationTime"]).total_seconds()
