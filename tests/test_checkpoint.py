@@ -160,3 +160,17 @@ def test_vec_env_episode_index_resume():
         resumed.close()
     with pytest.raises(ValueError):
         PursuitVecEnv(cfg, num_envs=2, seed=1, episode_index=[0])
+
+
+def test_checkpoints_from_before_a_config_field_existed_still_load():
+    """Regression: a TarMAC checkpoint saved before model.use_own_position / belief /
+    replay existed failed evaluation because the raw saved dict lacked those keys."""
+    saved = Config().to_dict()
+    del saved["model"]["use_own_position"]
+    del saved["belief"]
+    del saved["replay"]
+    check_compatible(saved, Config().to_dict(), resume=False)
+    check_compatible(saved, Config().to_dict(), resume=True)
+    with pytest.raises(CheckpointError, match="model"):
+        check_compatible(saved, Config(model=ModelConfig(use_own_position=True)).to_dict(),
+                         resume=False)  # fmt: skip

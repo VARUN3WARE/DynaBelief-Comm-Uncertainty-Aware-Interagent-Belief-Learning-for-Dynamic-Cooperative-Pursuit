@@ -92,6 +92,12 @@ def check_compatible(saved: dict[str, Any], current: dict[str, Any], resume: boo
     Resuming training requires the same experiment definition (only run-length
     and logging fields may differ).
     """
+    # Configs saved before a field existed lack it. Every new option defaults to the old
+    # behaviour, so fill defaults before comparing (a missing key is not a mismatch).
+    from dynabelief.config import config_from_dict
+
+    saved = config_from_dict(saved).to_dict()
+    current = config_from_dict(current).to_dict()
     problems = []
     if saved.get("model") != current.get("model"):
         problems.append(f"model: {saved.get('model')} != {current.get('model')}")
