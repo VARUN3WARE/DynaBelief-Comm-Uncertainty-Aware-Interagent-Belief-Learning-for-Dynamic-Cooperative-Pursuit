@@ -16,10 +16,12 @@ import numpy as np
 import torch
 
 from dynabelief.algorithms.mappo import MAPPO
+from dynabelief.comm.channel import PacketLossChannel
 from dynabelief.config import Config
 from dynabelief.envs.pursuit import PrivilegedInfo, stack_privileged
 from dynabelief.envs.vector import PursuitVecEnv
 from dynabelief.models.actor_critic import MAPPOPolicy
+from dynabelief.models.comm import TarMACComm
 from dynabelief.training.buffer import RolloutBuffer
 from dynabelief.training.rollout import summarize_episodes
 from dynabelief.utils.checkpointing import (
@@ -30,7 +32,7 @@ from dynabelief.utils.checkpointing import (
     save_checkpoint,
 )
 from dynabelief.utils.logging import JsonlWriter, get_logger, resource_usage
-from dynabelief.utils.seeding import derive_seed, seed_everything
+from dynabelief.utils.seeding import derive_seed, make_rng, seed_everything
 
 
 def build_policy(config: Config, obs_shape, state_shape, n_actions: int) -> MAPPOPolicy:
@@ -43,6 +45,8 @@ def build_policy(config: Config, obs_shape, state_shape, n_actions: int) -> MAPP
         hidden_dim=m.hidden_dim,
         conv_channels=m.conv_channels,
         critic_hidden_dim=m.critic_hidden_dim,
+        comm_key_dim=config.comm.key_dim if config.comm.enabled else None,
+        comm_value_dim=config.comm.message_dim if config.comm.enabled else None,
     )
 
 
@@ -98,12 +102,27 @@ class MAPPOTrainer:
                 config.model.hidden_dim,
                 self.device,
             )
+            # Seeded lossy channel (M3). Messages are sampled per directed link per step.
+            comm = config.comm
+            self.channel = (
+                PacketLossChannel(
+                    self.vec.n_agents,
+                    comm.packet_loss,
+                    make_rng(seed, "comm"),
+                    message_dim=comm.elements_per_message,
+                    bytes_per_element=comm.bytes_per_element,
+                )
+                if comm.enabled
+                else None
+            )
             self.env_steps = 0
             self.update_index = 0
             self.best_score = -math.inf
             if checkpoint is not None:
                 self.algo.load_state_dict(checkpoint["learner"])
                 restore_rng_state(checkpoint["rng"], self.algo.generator)
+                if self.channel is not None:
+                    self.channel.rng.bit_generator.state = checkpoint["comm_rng"]
                 self.env_steps = checkpoint["env_steps"]
                 self.update_index = checkpoint["update"]
                 # best.pt is per run directory: a resumed run starts its own best tracking
@@ -135,10 +154,25 @@ class MAPPOTrainer:
         buf = self.buffer
         buf.reset()
         completed: list[dict[str, Any]] = []
+        entropy_sum, entropy_n = 0.0, 0
+        n = self.vec.n_agents
         for _ in range(buf.T):
             obs = self._t(actor.obs, torch.float32)
-            # Actor sees only its local views and its own recurrent state.
-            actions, log_probs, new_hidden = self.policy.act(obs, hidden, start)
+            if self.channel is not None:
+                # Messages readable now were sent at t-1; none exist at an episode start.
+                alive = actor.agent_mask & ~start.cpu().numpy()[:, None]
+                delivery = self._t(self.channel.sample_delivery(alive), torch.bool)
+            else:
+                delivery = torch.zeros(self.vec.num_envs, n, n, dtype=torch.bool,
+                                       device=self.device)  # fmt: skip
+            # Actor sees only its local views, its own recurrent state and delivered messages.
+            actions, log_probs, new_hidden = self.policy.act(
+                obs, hidden, start, delivery=delivery if self.channel is not None else None
+            )
+            if self.channel is not None and delivery.any():
+                attention = self.policy.actor.last_attention
+                entropy_sum += float(TarMACComm.attention_entropy(attention, delivery))
+                entropy_n += 1
             values = self._critic_values(priv)
             result = self.vec.step(actions.cpu().numpy())
 
@@ -157,6 +191,7 @@ class MAPPOTrainer:
                 values=values,
                 rewards=self._t(result.rewards, torch.float32),
                 agent_mask=self._t(actor.agent_mask, torch.bool),
+                delivery=delivery,
                 terminated=self._t(result.terminated, torch.bool),
                 truncated=self._t(result.truncated, torch.bool),
                 final_values=final_values,
@@ -174,6 +209,12 @@ class MAPPOTrainer:
             hidden, start = new_hidden, self._t(result.done, torch.bool)
 
         self.algo.compute_returns(buf, self._critic_values(priv))
+        self._comm_metrics = {}
+        if self.channel is not None:
+            self._comm_metrics = {
+                **{f"comm_{k}": v for k, v in self.channel.reset_stats().as_dict().items()},
+                "comm_attention_entropy": entropy_sum / entropy_n if entropy_n else 0.0,
+            }
         return actor, priv, hidden, start, completed
 
     # ---------------------------------------------------------- checkpoint
@@ -186,6 +227,7 @@ class MAPPOTrainer:
             "update": self.update_index,
             "episode_index": self.vec.episode_index(),
             "best_score": self.best_score,
+            "comm_rng": self.channel.rng.bit_generator.state if self.channel else None,
         }
 
     def save(self, name: str) -> Path | None:
@@ -242,6 +284,7 @@ class MAPPOTrainer:
                     "rollout_mean_reward": float(self.buffer.rewards.mean()),
                     **{f"window_{k}": v for k, v in window.items() if v is not None},
                     **update_metrics,
+                    **self._comm_metrics,
                     **resource_usage(),
                 }
                 if metrics_log:

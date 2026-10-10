@@ -130,16 +130,25 @@ class CommConfig:
 
     ``delay_steps=1`` is the project's canonical timing: messages produced at
     step ``t`` are delivered (or dropped) and become readable at ``t+1``.
+    With ``train.policy: mappo``, ``enabled: true`` means TarMAC-MAPPO (M3): a message
+    is a key (``key_dim``) plus a value (``message_dim``) floats.
     """
 
     enabled: bool = True
-    message_dim: int = 16
+    message_dim: int = 16  # value (content) dimension
+    key_dim: int = 16  # attention signature dimension
     packet_loss: float = 0.0
     delay_steps: int = 1
     bytes_per_element: int = 4  # float32 on the wire
 
+    @property
+    def elements_per_message(self) -> int:
+        """Floats on the wire per directed message (key + value; the query stays local)."""
+        return self.key_dim + self.message_dim
+
     def validate(self) -> None:
         _require(self.message_dim >= 1, "comm.message_dim must be >= 1")
+        _require(self.key_dim >= 1, "comm.key_dim must be >= 1")
         _require(0.0 <= self.packet_loss <= 1.0, "comm.packet_loss must be in [0, 1]")
         _require(self.delay_steps == 1, "comm.delay_steps: only 1-step delay is supported")
         _require(self.bytes_per_element in (1, 2, 4, 8), "comm.bytes_per_element must be 1/2/4/8")
@@ -252,11 +261,6 @@ class Config:
             getattr(self, section.name).validate()
         if self.train.policy == "mappo":
             train, ppo = self.train, self.ppo
-            _require(
-                not self.comm.enabled,
-                "train.policy=mappo is the No-Communication baseline; set comm.enabled: false "
-                "(learned communication arrives with TarMAC in M3)",
-            )
             _require(
                 train.rollout_length % ppo.chunk_length == 0,
                 f"train.rollout_length ({train.rollout_length}) must be divisible by "

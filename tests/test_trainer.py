@@ -129,10 +129,18 @@ def test_resume_rejects_changed_experiment(tmp_path):
         MAPPOTrainer(changed, "cpu", resume_from=tmp_path / "checkpoints" / "final.pt")
 
 
-def test_mappo_requires_comm_disabled_until_m3():
+def test_mappo_with_comm_builds_a_tarmac_policy():
+    from dynabelief.training.trainer import build_policy
+
     raw = tiny().to_dict()
-    raw["comm"]["enabled"] = True
-    with pytest.raises(ConfigError, match="comm.enabled"):
+    raw["comm"].update(enabled=True, key_dim=4, message_dim=6)
+    config = config_from_dict(raw)
+    assert config.comm.elements_per_message == 10
+    policy = build_policy(config, (7, 7, 3), (3, 16, 16), 5)
+    assert policy.actor.comm is not None and policy.actor.comm.value_dim == 6
+    assert build_policy(tiny(), (7, 7, 3), (3, 16, 16), 5).actor.comm is None
+    raw["comm"]["key_dim"] = 0
+    with pytest.raises(ConfigError, match="key_dim"):
         config_from_dict(raw)
 
 

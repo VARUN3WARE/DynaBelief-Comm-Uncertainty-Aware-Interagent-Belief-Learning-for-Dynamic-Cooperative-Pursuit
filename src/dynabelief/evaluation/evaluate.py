@@ -28,11 +28,12 @@ def eval_seeds(base_seed: int, episodes: int) -> list[int]:
 
 
 class EvalAgent(Protocol):
-    """Decentralized controller for evaluation: sees only ``ActorObs``."""
+    """Decentralized controller for evaluation: sees only ``ActorObs`` and the channel's
+    delivery mask ``[N_recv, N_send]`` (``None`` when communication is disabled)."""
 
     def reset(self, episode: int) -> None: ...
 
-    def act(self, actor: ActorObs) -> np.ndarray: ...
+    def act(self, actor: ActorObs, delivery: np.ndarray | None = None) -> np.ndarray: ...
 
 
 class RandomAgent:
@@ -43,7 +44,7 @@ class RandomAgent:
     def reset(self, episode: int) -> None:
         self.policy = RandomPolicy(self.n_actions, make_rng(self.seed, "eval_policy", episode))
 
-    def act(self, actor: ActorObs) -> np.ndarray:
+    def act(self, actor: ActorObs, delivery: np.ndarray | None = None) -> np.ndarray:
         assert self.policy is not None
         return self.policy.act(actor)
 
@@ -61,12 +62,19 @@ class MAPPOAgent:
         torch.manual_seed(derive_seed(self.seed, "eval_policy", episode))
         self.hidden, self.start = None, True
 
-    def act(self, actor: ActorObs) -> np.ndarray:
+    def act(self, actor: ActorObs, delivery: np.ndarray | None = None) -> np.ndarray:
         obs = torch.as_tensor(actor.obs, dtype=torch.float32, device=self.device).unsqueeze(0)
         if self.hidden is None:
             self.hidden = self.policy.actor.initial_state(1, obs.shape[1], self.device)
         start = torch.tensor([self.start], device=self.device)
-        actions, _, self.hidden = self.policy.act(obs, self.hidden, start, self.deterministic)
+        mask = None
+        if self.policy.actor.comm is not None:
+            if delivery is None:
+                raise ValueError("communicating policy evaluated without a delivery mask")
+            mask = torch.as_tensor(delivery, dtype=torch.bool, device=self.device).unsqueeze(0)
+        actions, _, self.hidden = self.policy.act(
+            obs, self.hidden, start, self.deterministic, delivery=mask
+        )
         self.start = False
         return np.where(actor.agent_mask, actions[0].cpu().numpy(), 0)
 
@@ -82,6 +90,9 @@ def evaluate(
     seed = config.experiment.seed
     env = PursuitEnv(config.env)
     records: list[dict[str, Any]] = []
+    if run_dir is not None:
+        run_dir = Path(run_dir)
+        run_dir.mkdir(parents=True, exist_ok=True)
     writer = JsonlWriter(run_dir / "episodes.jsonl") if run_dir else None
     try:
         for k, episode_seed in enumerate(eval_seeds(seed, episodes)):
@@ -93,13 +104,18 @@ def evaluate(
                 env.n_agents,
                 config.comm.packet_loss,
                 make_rng(seed, "eval_comm", k),
-                message_dim=config.comm.message_dim,
+                message_dim=config.comm.elements_per_message,
                 bytes_per_element=config.comm.bytes_per_element,
             )
+            first_step = True
             while True:
+                delivery = None
                 if config.comm.enabled:
-                    channel.sample_delivery(actor.agent_mask)
-                result = env.step(agent.act(actor))
+                    # Messages readable now were sent at t-1; none exist at the first step.
+                    alive = actor.agent_mask & (not first_step)
+                    delivery = channel.sample_delivery(alive)
+                result = env.step(agent.act(actor, delivery))
+                first_step = False
                 actor = result.actor
                 if result.done:
                     break

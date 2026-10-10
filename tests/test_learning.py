@@ -67,6 +67,7 @@ def run_task(
                 obs=obs, episode_start=start, actor_hidden=hidden, actions=actions,
                 log_probs=logp, values=values, rewards=correct.float(),
                 agent_mask=torch.ones(E, N, dtype=torch.bool),
+                delivery=torch.zeros(E, N, N, dtype=torch.bool),
                 terminated=torch.full((E,), last), truncated=torch.zeros(E, dtype=torch.bool),
                 final_values=torch.zeros(E, N), global_state=state, pursuer_pos=pos, step=step,
             )  # fmt: skip

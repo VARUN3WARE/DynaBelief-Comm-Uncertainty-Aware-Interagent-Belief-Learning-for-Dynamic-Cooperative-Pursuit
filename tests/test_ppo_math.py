@@ -210,7 +210,8 @@ def fill_buffer(policy, T=8, E=3, N=2, seed=0):
         buf.add(
             obs=obs, episode_start=start, actor_hidden=hidden, actions=actions, log_probs=logp,
             values=torch.randn(E, N, generator=g), rewards=torch.randn(E, N, generator=g),
-            agent_mask=torch.ones(E, N, dtype=torch.bool), terminated=terminated,
+            agent_mask=torch.ones(E, N, dtype=torch.bool),
+            delivery=torch.zeros(E, N, N, dtype=torch.bool), terminated=terminated,
             truncated=truncated, final_values=torch.randn(E, N, generator=g),
             global_state=torch.rand(E, *STATE, generator=g),
             pursuer_pos=torch.randint(0, 16, (E, N, 2), generator=g),

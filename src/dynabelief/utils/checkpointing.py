@@ -77,14 +77,18 @@ def load_checkpoint(path: str | Path, map_location: str | torch.device = "cpu") 
 
 
 # Fields that change the network's tensor shapes or meaning.
-_SHAPE_FIELDS = {"env": ("x_size", "y_size", "obs_range")}
+_SHAPE_FIELDS = {
+    "env": ("x_size", "y_size", "obs_range"),
+    "comm": ("enabled", "key_dim", "message_dim"),  # architecture; packet_loss may change
+}
 
 
 def check_compatible(saved: dict[str, Any], current: dict[str, Any], resume: bool) -> None:
     """Raise ``CheckpointError`` if ``current`` cannot use a checkpoint saved with ``saved``.
 
     Evaluation may change agent counts, evader counts, packet loss, episode
-    length, etc. (generalization tests) but not the model or grid/view shapes.
+    length, etc. (generalization / robustness tests) but not the model, the
+    communication architecture, or grid/view shapes.
     Resuming training requires the same experiment definition (only run-length
     and logging fields may differ).
     """
