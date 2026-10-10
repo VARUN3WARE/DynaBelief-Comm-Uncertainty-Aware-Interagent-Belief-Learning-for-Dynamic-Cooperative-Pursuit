@@ -34,6 +34,8 @@ class Minibatch:
     agent_mask: torch.Tensor  # [L, B, N]
     delivery: torch.Tensor  # [L, B, N_recv, N_send] messages readable at each step
     own_pos: torch.Tensor  # [L, B, N, 2] each agent's own normalized position
+    belief_target: torch.Tensor  # [L, B, N, 2] TRAINING-ONLY label (never an actor input)
+    belief_valid: torch.Tensor  # [L, B, N] label exists (target found by the team)
     global_state: torch.Tensor  # [L, B, C, Y, X]
     pursuer_pos: torch.Tensor  # [L, B, N, 2]
     step: torch.Tensor  # [L, B]
@@ -67,6 +69,8 @@ class RolloutBuffer:
         self.agent_mask = zeros(T, E, N, dtype=torch.bool)
         self.delivery = zeros(T, E, N, N, dtype=torch.bool)
         self.own_pos = zeros(T, E, N, 2)
+        self.belief_target = zeros(T, E, N, 2)
+        self.belief_valid = zeros(T, E, N, dtype=torch.bool)
         self.terminated = zeros(T, E, dtype=torch.bool)
         self.truncated = zeros(T, E, dtype=torch.bool)
         self.final_values = zeros(T, E, N)
@@ -87,8 +91,8 @@ class RolloutBuffer:
             raise RuntimeError("buffer is full; call reset() after the update")
         required = {
             "obs", "episode_start", "actor_hidden", "actions", "log_probs", "values",
-            "rewards", "agent_mask", "delivery", "own_pos", "terminated", "truncated",
-            "final_values",
+            "rewards", "agent_mask", "delivery", "own_pos", "belief_target", "belief_valid",
+            "terminated", "truncated", "final_values",
             "global_state", "pursuer_pos", "step",
         }  # fmt: skip
         if set(fields) != required:
@@ -149,6 +153,8 @@ class RolloutBuffer:
                 agent_mask=take(self.agent_mask),
                 delivery=take(self.delivery),
                 own_pos=take(self.own_pos),
+                belief_target=take(self.belief_target),
+                belief_valid=take(self.belief_valid),
                 global_state=take(self.global_state),
                 pursuer_pos=take(self.pursuer_pos),
                 step=take(self.step),

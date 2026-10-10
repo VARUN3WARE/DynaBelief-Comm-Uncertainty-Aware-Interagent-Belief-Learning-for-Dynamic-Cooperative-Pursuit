@@ -16,6 +16,7 @@ import numpy as np
 import torch
 
 from dynabelief.algorithms.mappo import MAPPO
+from dynabelief.beliefs.targets import point_targets
 from dynabelief.comm.channel import PacketLossChannel
 from dynabelief.config import Config
 from dynabelief.envs.pursuit import PrivilegedInfo, stack_privileged
@@ -48,6 +49,7 @@ def build_policy(config: Config, obs_shape, state_shape, n_actions: int) -> MAPP
         comm_key_dim=config.comm.key_dim if config.comm.enabled else None,
         comm_value_dim=config.comm.message_dim if config.comm.enabled else None,
         use_own_position=m.use_own_position,
+        belief_type=config.belief.type,
     )
 
 
@@ -93,7 +95,14 @@ class MAPPOTrainer:
             )
             self.policy.to(self.device)
             generator = torch.Generator().manual_seed(derive_seed(seed, "minibatch"))
-            self.algo = MAPPO(self.policy, config.ppo, self.device, generator)
+            self.algo = MAPPO(
+                self.policy,
+                config.ppo,
+                self.device,
+                generator,
+                belief_coef=config.belief.coef if config.belief.type != "none" else 0.0,
+                grid_scale=float(config.env.x_size - 1),
+            )
             self.buffer = RolloutBuffer(
                 train.rollout_length,
                 train.num_envs,
@@ -158,6 +167,7 @@ class MAPPOTrainer:
         entropy_sum, entropy_n = 0.0, 0
         n = self.vec.n_agents
         uses_pos = self.policy.actor.use_own_position
+        env_cfg = self.config.env
         for _ in range(buf.T):
             obs = self._t(actor.obs, torch.float32)
             own_pos = self._t(actor.own_pos, torch.float32)
@@ -181,6 +191,14 @@ class MAPPOTrainer:
                 entropy_sum += float(TarMACComm.attention_entropy(attention, delivery))
                 entropy_n += 1
             values = self._critic_values(priv)
+            # TRAINING-ONLY labels for the state the actor just acted in (loss input only).
+            if self.config.belief.type == "point":
+                target, valid = point_targets(priv.pursuer_pos, priv.evader_pos,
+                                              priv.evader_alive, env_cfg.obs_range,
+                                              (env_cfg.x_size, env_cfg.y_size))  # fmt: skip
+            else:
+                target = np.zeros((self.vec.num_envs, n, 2), dtype=np.float32)
+                valid = np.zeros((self.vec.num_envs, n), dtype=bool)
             result = self.vec.step(actions.cpu().numpy())
 
             final_values = torch.zeros_like(values)
@@ -200,6 +218,8 @@ class MAPPOTrainer:
                 agent_mask=self._t(actor.agent_mask, torch.bool),
                 delivery=delivery,
                 own_pos=own_pos,
+                belief_target=self._t(target, torch.float32),
+                belief_valid=self._t(valid, torch.bool),
                 terminated=self._t(result.terminated, torch.bool),
                 truncated=self._t(result.truncated, torch.bool),
                 final_values=final_values,

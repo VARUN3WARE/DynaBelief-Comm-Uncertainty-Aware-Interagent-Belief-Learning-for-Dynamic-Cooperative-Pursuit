@@ -212,6 +212,7 @@ def fill_buffer(policy, T=8, E=3, N=2, seed=0):
             values=torch.randn(E, N, generator=g), rewards=torch.randn(E, N, generator=g),
             agent_mask=torch.ones(E, N, dtype=torch.bool),
             delivery=torch.zeros(E, N, N, dtype=torch.bool), own_pos=torch.zeros(E, N, 2),
+            belief_target=torch.zeros(E, N, 2), belief_valid=torch.zeros(E, N, dtype=torch.bool),
             terminated=terminated,
             truncated=truncated, final_values=torch.randn(E, N, generator=g),
             global_state=torch.rand(E, *STATE, generator=g),

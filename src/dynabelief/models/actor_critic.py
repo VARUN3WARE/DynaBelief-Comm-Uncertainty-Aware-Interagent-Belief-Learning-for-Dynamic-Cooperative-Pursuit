@@ -42,11 +42,24 @@ class RecurrentActor(nn.Module):
         comm_key_dim: int | None = None,
         comm_value_dim: int | None = None,
         use_own_position: bool = False,
+        belief_type: str = "none",
     ) -> None:
         super().__init__()
         self.hidden_dim = hidden_dim
         self.n_actions = n_actions
         self.use_own_position = use_own_position
+        # Point belief (DIABL): normalized (x, y) of the nearest team-visible evader,
+        # read from the post-message hidden state so its loss trains the senders too.
+        self.belief_head = (
+            nn.Sequential(
+                init_layer(nn.Linear(hidden_dim, hidden_dim)),
+                nn.ReLU(),
+                init_layer(nn.Linear(hidden_dim, 2), gain=0.1),
+                nn.Sigmoid(),
+            )
+            if belief_type == "point"
+            else None
+        )
         self.encoder = LocalObsEncoder(obs_shape, conv_channels, hidden_dim)
         self.comm = (
             TarMACComm(hidden_dim, comm_key_dim, comm_value_dim)
@@ -196,11 +209,12 @@ class MAPPOPolicy(nn.Module):
         comm_key_dim: int | None = None,
         comm_value_dim: int | None = None,
         use_own_position: bool = False,
+        belief_type: str = "none",
     ) -> None:
         super().__init__()
         self.actor = RecurrentActor(
             obs_shape, n_actions, hidden_dim, conv_channels, comm_key_dim, comm_value_dim,
-            use_own_position,
+            use_own_position, belief_type,
         )  # fmt: skip
         self.critic = CentralCritic(state_shape, max_cycles, critic_hidden_dim, conv_channels)
 

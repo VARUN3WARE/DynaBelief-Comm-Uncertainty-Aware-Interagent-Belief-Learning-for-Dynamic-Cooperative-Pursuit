@@ -250,6 +250,22 @@ class PPOConfig:
         _require(self.target_kl >= 0.0, "ppo.target_kl must be >= 0")
 
 
+BELIEF_TYPES = ("none", "point")
+
+
+@dataclass(frozen=True)
+class BeliefConfig:
+    """Interagent belief learning (DIABL family). ``point`` (M4): each agent regresses the
+    absolute position of the nearest team-visible evader from its post-message state."""
+
+    type: str = "none"
+    coef: float = 1.0  # weight of the belief loss in the actor loss
+
+    def validate(self) -> None:
+        _require(self.type in BELIEF_TYPES, f"belief.type must be one of {BELIEF_TYPES}")
+        _require(self.coef >= 0.0, "belief.coef must be >= 0")
+
+
 @dataclass(frozen=True)
 class Config:
     experiment: ExperimentConfig = field(default_factory=ExperimentConfig)
@@ -258,10 +274,17 @@ class Config:
     train: TrainConfig = field(default_factory=TrainConfig)
     model: ModelConfig = field(default_factory=ModelConfig)
     ppo: PPOConfig = field(default_factory=PPOConfig)
+    belief: BeliefConfig = field(default_factory=BeliefConfig)
 
     def validate(self) -> None:
         for section in dataclasses.fields(self):
             getattr(self, section.name).validate()
+        if self.belief.type != "none":
+            _require(
+                self.comm.enabled and self.model.use_own_position,
+                "belief learning needs comm.enabled (beliefs are learned THROUGH the channel) "
+                "and model.use_own_position (targets are absolute coordinates; D31)",
+            )
         if self.train.policy == "mappo":
             train, ppo = self.train, self.ppo
             _require(

@@ -33,6 +33,9 @@ class LossTerms:
     entropy: torch.Tensor
     approx_kl: torch.Tensor
     clip_fraction: torch.Tensor
+    belief_loss: torch.Tensor | None = None  # mean squared error of normalized (x, y)
+    belief_error: torch.Tensor | None = None  # mean Euclidean error, normalized units
+    belief_valid_fraction: torch.Tensor | None = None
 
 
 def masked_mean(x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
@@ -104,9 +107,15 @@ class MAPPO:
         config: PPOConfig,
         device: torch.device | str,
         generator: torch.Generator,
+        belief_coef: float = 0.0,
+        grid_scale: float = 1.0,
     ) -> None:
+        """``belief_coef`` weights the belief loss in the actor loss; ``grid_scale`` converts
+        normalized belief errors to grid cells for logging (x_size - 1)."""
         self.policy = policy
         self.config = config
+        self.belief_coef = belief_coef
+        self.grid_scale = grid_scale
         self.device = torch.device(device)
         self.generator = generator  # CPU generator for minibatch shuffling
         self.actor_optimizer = torch.optim.Adam(
@@ -179,13 +188,15 @@ class MAPPO:
         actor = self.policy.actor
         delivery = mb.delivery if actor.comm is not None else None
         own_pos = mb.own_pos if actor.use_own_position else None
-        logits = actor.unroll(mb.obs, mb.actor_hidden0, mb.episode_start, delivery, own_pos)
+        logits, hiddens = actor.unroll(
+            mb.obs, mb.actor_hidden0, mb.episode_start, delivery, own_pos, return_hidden=True
+        )
         dist = Categorical(logits=logits)
         raw_values = self.policy.critic(
             mb.global_state.flatten(0, 1), mb.pursuer_pos.flatten(0, 1), mb.step.flatten(0, 1)
         ).reshape(length, batch, n_agents)
         cfg = self.config
-        return ppo_loss_terms(
+        terms = ppo_loss_terms(
             new_log_probs=dist.log_prob(mb.actions),
             old_log_probs=mb.old_log_probs,
             advantages=mb.advantages,
@@ -198,6 +209,23 @@ class MAPPO:
             value_clip_eps=cfg.value_clip_eps,
             huber_delta=cfg.huber_delta,
         )
+        if actor.belief_head is not None:
+            valid = mb.belief_valid & mb.agent_mask
+            squared = (actor.belief_head(hiddens) - mb.belief_target).pow(2).sum(-1)
+            terms.belief_loss = masked_mean(squared, valid)
+            with torch.no_grad():
+                terms.belief_error = masked_mean(squared.sqrt(), valid)
+                terms.belief_valid_fraction = masked_mean(valid.float(), mb.agent_mask)
+        return terms
+
+    def _sender_grad_norm(self, belief_loss: torch.Tensor) -> float:
+        """Norm of the belief loss's gradient on the message (key/value) layers: how much
+        the receivers' beliefs are training the senders through the channel."""
+        comm = self.policy.actor.comm
+        params = [*comm.key.parameters(), *comm.value.parameters()]
+        grads = torch.autograd.grad(belief_loss, params, retain_graph=True, allow_unused=True)
+        squares = [g.pow(2).sum() for g in grads if g is not None]
+        return float(torch.stack(squares).sum().sqrt()) if squares else 0.0
 
     def update(self, buffer: RolloutBuffer) -> dict[str, float]:
         """Run ``epochs`` x ``num_minibatches`` PPO steps on a full buffer."""
@@ -229,6 +257,19 @@ class MAPPO:
             ):
                 terms = self._minibatch_terms(mb, old_norm)
                 actor_loss = terms.policy_loss - cfg.entropy_coef * terms.entropy
+                belief_record = {}
+                if terms.belief_loss is not None:
+                    actor_loss = actor_loss + self.belief_coef * terms.belief_loss
+                    belief_record = {
+                        "belief_loss": terms.belief_loss.item(),
+                        "weighted_belief_loss": self.belief_coef * terms.belief_loss.item(),
+                        "belief_error_cells": terms.belief_error.item() * self.grid_scale,
+                        "belief_valid_fraction": terms.belief_valid_fraction.item(),
+                    }
+                    if n_steps == 0 and self.policy.actor.comm is not None:
+                        belief_record["belief_sender_grad_norm"] = self._sender_grad_norm(
+                            terms.belief_loss
+                        )
                 critic_loss = cfg.value_coef * terms.value_loss
                 total = actor_loss + critic_loss
                 if not torch.isfinite(total):
@@ -260,6 +301,7 @@ class MAPPO:
                     "clip_fraction": terms.clip_fraction.item(),
                     "actor_grad_norm": float(actor_grad),
                     "critic_grad_norm": float(critic_grad),
+                    **belief_record,
                 }
                 for key, value in record.items():
                     sums[key] = sums.get(key, 0.0) + value
@@ -269,7 +311,8 @@ class MAPPO:
                 stopped_early = True
                 break
 
-        metrics = {key: value / n_steps for key, value in sums.items()}
+        once = {"belief_sender_grad_norm"}  # recorded on the first minibatch only
+        metrics = {key: value if key in once else value / n_steps for key, value in sums.items()}
         metrics.update(diagnostics)
         metrics["gradient_steps"] = n_steps
         metrics["kl_early_stop"] = float(stopped_early)

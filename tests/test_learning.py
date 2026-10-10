@@ -69,6 +69,8 @@ def run_task(
                 agent_mask=torch.ones(E, N, dtype=torch.bool),
                 delivery=torch.zeros(E, N, N, dtype=torch.bool),
                 own_pos=torch.zeros(E, N, 2),
+                belief_target=torch.zeros(E, N, 2),
+                belief_valid=torch.zeros(E, N, dtype=torch.bool),
                 terminated=torch.full((E,), last), truncated=torch.zeros(E, dtype=torch.bool),
                 final_values=torch.zeros(E, N), global_state=state, pursuer_pos=pos, step=step,
             )  # fmt: skip
