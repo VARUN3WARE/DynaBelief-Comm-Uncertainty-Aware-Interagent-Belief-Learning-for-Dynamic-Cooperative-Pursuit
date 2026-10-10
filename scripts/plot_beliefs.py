@@ -37,6 +37,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--steps", type=int, nargs="+", default=[5, 100, 250, 450])
     parser.add_argument("--packet-loss", type=float, default=0.0)
     parser.add_argument("--output", type=Path, help="PNG (default: next to the checkpoint)")
+    parser.add_argument("--title", help="run name for the figure title")
     parser.add_argument("--set", dest="overrides", action="append", default=[])
     args = parser.parse_args(argv)
 
@@ -98,7 +99,8 @@ def main(argv: list[str] | None = None) -> int:
         ax.set_aspect("equal")
     axes[0].legend(loc="upper left", bbox_to_anchor=(0, -0.08), ncol=4, fontsize=7.5,
                    frameon=False, labelcolor=TEXT)  # fmt: skip
-    fig.suptitle(f"Point beliefs, held-out episode 0 ({Path(args.checkpoint).parent.parent.name}, "
+    run_name = args.title or load_checkpoint(args.checkpoint)["config"]["experiment"]["name"]
+    fig.suptitle(f"Point beliefs, held-out episode 0 ({run_name}, "
                  f"packet loss {args.packet_loss:g}); episode mean error "
                  f"{summary.get('belief_error_cells', float('nan')):.1f} cells",
                  x=0.01, ha="left", fontsize=10, color=TEXT)  # fmt: skip

@@ -36,4 +36,6 @@ What happened, in order, with the commit and the key number. Decisions are in
 | `80e0183` | **M4.2** point-belief labels | Nearest team-visible evader; aligned with the simulator on 50+ real targets |
 | `88ab496` | **M4.3** point-belief DIABL head + loss | A receiver's belief trains the sender only through delivered messages; logged sender-side gradient |
 | `bd04fae` | **M4.4** uniform InfER + configs `tarmac_pos`, `point_diabl` | Windows never cross episode ends; replay halves the replayed belief loss; 232 fast tests pass |
-| `bd04fae` | M4 smoke job on AWS (`dynabelief-smoke-diabl-20261010-164844`) | Left running (few minutes); full M4 runs not launched yet |
+| `bd04fae` | M4 smoke job on AWS (`dynabelief-smoke-diabl-20261010-164844`) | Completed: belief loss falls, sender gradient non-zero, events/windows/replay work |
+| `64def42` `d58a27f` `07ab675` `29744fc` | Belief eval metrics + plots, eval-only jobs, `compare_runs.py`; fixes for old-checkpoint compatibility and live metric sync | — |
+| `3628b49` | **M4 runs**: `tarmac_pos` (control) and `point_diabl`, 5M steps each ($20 incl. evals) | **point DIABL 0.974 vs 0.562** capture rate (paired Δ **+0.41 ± 0.03**), 0.966 at 50 % loss; with no messages it falls to 0.561, so the gain is communication. `best.pt` 1.000. Late-training collapse/recovery and greedy collapse noted ([result](results/m4_point_diabl.md)). **M4 complete** |

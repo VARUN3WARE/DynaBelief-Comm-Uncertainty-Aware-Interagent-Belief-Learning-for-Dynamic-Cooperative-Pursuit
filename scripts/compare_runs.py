@@ -33,10 +33,12 @@ def read_jsonl(path: Path) -> list[dict]:
         return [json.loads(line) for line in handle if line.strip()]
 
 
-def load_run(folder: Path) -> dict:
+def load_run(folder: Path, eval_folder: Path | None = None) -> dict:
+    """``eval_folder``: an eval-only job's folder whose evals replace the training job's."""
     metrics = sorted(folder.glob("runs/*/metrics.jsonl"))
     if not metrics:
         raise SystemExit(f"{folder}: no runs/*/metrics.jsonl")
+    folder = eval_folder or folder
     evals = {}
     for episodes in sorted(folder.glob("evals/*/*/episodes.jsonl")):
         evals[episodes.parent.parent.name] = read_jsonl(episodes)
@@ -136,7 +138,7 @@ def plot(runs: dict[str, dict], losses: list[float], out: Path) -> None:
             sweep.errorbar(lx, ly, yerr=err, color=color, linewidth=2, marker="o", markersize=5,
                            capsize=3, label=name)  # fmt: skip
     curve.legend(frameon=False, fontsize=8, labelcolor=TEXT, loc="lower right")
-    sweep.legend(frameon=False, fontsize=8, labelcolor=TEXT, loc="lower left")
+    sweep.legend(frameon=False, fontsize=8, labelcolor=TEXT, loc="center left")
     sweep.set_xticks(losses)
     fig.tight_layout()
     fig.savefig(out, dpi=150, facecolor=SURFACE)
@@ -144,15 +146,16 @@ def plot(runs: dict[str, dict], losses: list[float], out: Path) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    parser.add_argument("runs", nargs="+", metavar="NAME=FOLDER")
+    parser.add_argument("runs", nargs="+", metavar="NAME=TRAIN_FOLDER[:EVAL_FOLDER]")
     parser.add_argument("--ref", required=True, help="reference method for paired differences")
-    parser.add_argument("--losses", type=float, nargs="+", default=[0.0, 0.1, 0.2, 0.3])
+    parser.add_argument("--losses", type=float, nargs="+", default=[0.0, 0.1, 0.2, 0.3, 0.5, 1.0])
     parser.add_argument("--out", type=Path, required=True, help="output prefix (no extension)")
     args = parser.parse_args(argv)
     runs = {}
     for item in args.runs:
-        name, _, folder = item.partition("=")
-        runs[name] = load_run(Path(folder))
+        name, _, spec = item.partition("=")
+        train, _, evals = spec.partition(":")
+        runs[name] = load_run(Path(train), Path(evals) if evals else None)
     if args.ref not in runs:
         raise SystemExit(f"--ref {args.ref} is not one of {list(runs)}")
     text = table(runs, args.ref, args.losses)

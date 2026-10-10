@@ -13,6 +13,7 @@ Results so far:
 - [m2_baseline.md](results/m2_baseline.md): **M2 baseline** (No-Comm MAPPO, SageMaker): capture rate 0.54–0.55 vs 0.029 random on 50 held-out episodes
 - [m2_local_baseline_partial.md](results/m2_local_baseline_partial.md): first attempt on the PC, interrupted at 3.84M steps (superseded; same plateau)
 - [m3_tarmac.md](results/m3_tarmac.md): **M3 TarMAC**: same plateau as No-Comm (0.561 vs 0.537, n.s.), reached ~2× faster, unaffected by 0–30 % packet loss
+- [m4_point_diabl.md](results/m4_point_diabl.md): **M4 point DIABL + InfER**: 0.974 vs 0.562 for the matched control (paired +0.41); the gain disappears without messages
 
 Rules: numbers are computed from saved raw run records (`metrics.jsonl`, `episodes.jsonl`), not typed
 in by hand. Each note states the commit, config, seed and hardware. Superseded results are kept and

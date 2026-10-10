@@ -15,7 +15,7 @@ Object Search*, IEEE T-RO 2026 ([code](https://github.com/JernejPuc/centurymaze)
 | M1 | Pursuit wrapper, information boundary, packet-loss channel, random-policy smoke test | done |
 | M2 | No-Communication MAPPO | done: capture rate 0.54–0.55 vs 0.029 random ([result](docs/results/m2_baseline.md)) |
 | M3 | TarMAC-MAPPO | done: 0.561 vs 0.537, same plateau reached ~2× faster ([result](docs/results/m3_tarmac.md)) |
-| M4 | point-belief DIABL + uniform InfER | |
+| M4 | point-belief DIABL + uniform InfER | done: 0.974 vs 0.562 control, gain needs messages ([result](docs/results/m4_point_diabl.md)) |
 | M5 | D-DIABL | |
 | M6 | SP-InfER | |
 | M7 | three-seed evaluation | |
