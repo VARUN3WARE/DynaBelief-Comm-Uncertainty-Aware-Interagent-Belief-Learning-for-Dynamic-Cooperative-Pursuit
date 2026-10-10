@@ -55,7 +55,7 @@ def newest_final(runs_dir: Path) -> Path:
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mode", choices=("train", "tests"), default="train")
+    parser.add_argument("--mode", choices=("train", "tests", "evaluate"), default="train")
     parser.add_argument("--config", help="repo-relative config (train mode)")
     # nargs="?": the toolkit passes a bare flag when a value is empty. Values arrive
     # unquoted on a shell command line, hence base64 JSON for free-form overrides.
@@ -93,8 +93,58 @@ def eval_plan(comm_enabled: bool, train_loss: float, sweep: str) -> list[tuple[s
     return plan
 
 
-def run_tests() -> int:
-    run([sys.executable, "-m", "pip", "install", "--no-cache-dir", "--quiet", ".[dev]"])
+def run_evaluations(final: Path, plan: list, episodes: int, evals_dir: Path) -> None:
+    """All evaluations concurrently, one torch thread each (they share the CPU)."""
+    env = {**os.environ, "OMP_NUM_THREADS": "1", "MKL_NUM_THREADS": "1"}
+    procs = []
+    for label, extra in plan:
+        cmd = [sys.executable, "scripts/evaluate.py", "--checkpoint", str(final),
+               "--episodes", str(episodes), "--output-dir", str(evals_dir / label),
+               *extra]  # fmt: skip
+        print("+", " ".join(cmd), flush=True)
+        procs.append(subprocess.Popen(cmd, cwd=CODE, env=env))
+    failed = [label for (label, _), p in zip(plan, procs, strict=True) if p.wait() != 0]
+    if failed:
+        raise SystemExit(f"evaluations failed: {failed}")
+
+
+def export_evals(plan: list, evals_dir: Path) -> None:
+    MODEL.mkdir(parents=True, exist_ok=True)
+    for label, _ in plan:
+        for summary in (evals_dir / label).glob("*/summary.json"):
+            shutil.copy2(summary, MODEL / f"eval_{label}.json")
+
+
+def run_evaluate_only(args: argparse.Namespace) -> int:
+    """Evaluate a checkpoint from an earlier job (input channel 'checkpoint')."""
+    if not args.skip_install:  # a local dry-run must never replace the dev install
+        run([sys.executable, "-m", "pip", "install", "--no-cache-dir", "--quiet", "."])
+    from dynabelief.config import config_from_dict
+    from dynabelief.utils.checkpointing import load_checkpoint
+
+    channel = Path(os.environ.get("SM_CHANNEL_CHECKPOINT", "/opt/ml/input/data/checkpoint"))
+    candidates = sorted(channel.rglob("*.pt"))
+    if not candidates:
+        raise SystemExit(f"no checkpoint found under {channel}")
+    final = candidates[0]
+    config = config_from_dict(load_checkpoint(final)["config"])
+    evals_dir = CHECKPOINTS / "evals"
+    plan = eval_plan(config.comm.enabled, config.comm.packet_loss, args.eval_packet_loss)
+    run_evaluations(final, plan, args.eval_episodes, evals_dir)
+    export_evals(plan, evals_dir)
+    if config.belief.type == "point":
+        for loss in ("0", "0.3"):
+            out = CHECKPOINTS / f"beliefs_loss{loss}.png"
+            run([sys.executable, "scripts/plot_beliefs.py", "--checkpoint", str(final),
+                 "--packet-loss", loss, "--output", str(out)])  # fmt: skip
+            shutil.copy2(out, MODEL / out.name)
+    print("done", flush=True)
+    return 0
+
+
+def run_tests(args: argparse.Namespace) -> int:
+    if not args.skip_install:
+        run([sys.executable, "-m", "pip", "install", "--no-cache-dir", "--quiet", ".[dev]"])
     MODEL.mkdir(parents=True, exist_ok=True)
     run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider",
          f"--junitxml={MODEL / 'pytest.xml'}"])  # fmt: skip
@@ -105,7 +155,9 @@ def run_tests() -> int:
 def main() -> int:
     args = parse_args()
     if args.mode == "tests":
-        return run_tests()
+        return run_tests(args)
+    if args.mode == "evaluate":
+        return run_evaluate_only(args)
     if not args.skip_install:
         run([sys.executable, "-m", "pip", "install", "--no-cache-dir", "--quiet", "."])
     from dynabelief.config import load_config, parse_override
@@ -132,26 +184,19 @@ def main() -> int:
     plan = []
     if args.eval_episodes > 0:
         plan = eval_plan(config.comm.enabled, config.comm.packet_loss, args.eval_packet_loss)
-        # Each evaluation is a single-process episode loop: run them all concurrently.
-        procs = []
-        for label, extra in plan:
-            eval_cmd = [sys.executable, "scripts/evaluate.py", "--checkpoint", str(final),
-                        "--episodes", str(args.eval_episodes),
-                        "--output-dir", str(evals_dir / label), *extra]  # fmt: skip
-            print("+", " ".join(eval_cmd), flush=True)
-            procs.append(subprocess.Popen(eval_cmd, cwd=CODE))
-        failed = [label for (label, _), p in zip(plan, procs, strict=True) if p.wait() != 0]
-        if failed:
-            raise SystemExit(f"evaluations failed: {failed}")
+        run_evaluations(final, plan, args.eval_episodes, evals_dir)
     run([sys.executable, "scripts/plot_metrics.py", str(run_dir)])
 
     MODEL.mkdir(parents=True, exist_ok=True)
     for name in ("config.yaml", "metadata.yaml", "summary.json", "curves.png"):
         if (run_dir / name).exists():
             shutil.copy2(run_dir / name, MODEL / name)
-    for label, _ in plan:
-        for summary in (evals_dir / label).glob("*/summary.json"):
-            shutil.copy2(summary, MODEL / f"eval_{label}.json")
+    export_evals(plan, evals_dir)
+    if config.belief.type == "point":
+        out = run_dir / "beliefs.png"
+        run([sys.executable, "scripts/plot_beliefs.py", "--checkpoint", str(final),
+             "--output", str(out)])  # fmt: skip
+        shutil.copy2(out, MODEL / out.name)
     shutil.copy2(final, MODEL / "final.pt")
     print("done", flush=True)
     return 0

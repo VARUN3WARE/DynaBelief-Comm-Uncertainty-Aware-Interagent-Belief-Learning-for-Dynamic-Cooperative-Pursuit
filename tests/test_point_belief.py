@@ -130,3 +130,23 @@ def test_ppo_update_optimizes_the_belief_loss():
     for _ in range(50):  # tiny config: 1 epoch x 2 minibatches per update (measured 0.21 -> 0.14)
         algo.update(buf)
     assert belief_loss() < 0.75 * before
+
+
+def test_evaluation_scores_beliefs_against_references_and_plots(tmp_path):
+    from scripts import plot_beliefs
+
+    from dynabelief.evaluation.evaluate import evaluate_checkpoint
+
+    config = diabl_config()
+    MAPPOTrainer(config, "cpu", run_dir=tmp_path).train()
+    final = tmp_path / "checkpoints" / "final.pt"
+    summary = evaluate_checkpoint(config, final, episodes=1, device="cpu", run_dir=tmp_path / "e")
+    keys = ("belief_error_cells", "belief_ref_own_position_cells", "belief_ref_grid_centre_cells",
+            "belief_valid_fraction", "belief_remote_fraction")  # fmt: skip
+    for key in keys:
+        assert math.isfinite(summary[key]) and summary[key] >= 0, key
+    assert 0 < summary["belief_valid_fraction"] <= 1
+    out = tmp_path / "beliefs.png"
+    assert plot_beliefs.main(["--checkpoint", str(final), "--steps", "1", "5",
+                              "--output", str(out)]) == 0  # fmt: skip
+    assert out.stat().st_size > 10_000

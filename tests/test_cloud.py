@@ -159,3 +159,13 @@ def test_hyperparameters_are_shell_safe():
             decoded = json.loads(value)
             assert re.fullmatch(r"[A-Za-z0-9_.,:/=+-]*", str(decoded)), (key, decoded)
     assert entry.decode_list(launch.encode_list(nasty)) == nasty
+
+
+def test_evaluate_request_mounts_the_checkpoint():
+    r = request(mode="evaluate", config="", overrides=[], checkpoint_uri="s3://b/k/final.pt")
+    (channel,) = r["InputDataConfig"]
+    assert channel["ChannelName"] == "checkpoint"
+    assert channel["DataSource"]["S3DataSource"]["S3Uri"] == "s3://b/k/final.pt"
+    assert json.loads(r["HyperParameters"]["mode"]) == "evaluate"
+    assert "InputDataConfig" not in request()
+    assert entry.parse_args(["--mode", "evaluate"]).mode == "evaluate"

@@ -7,12 +7,14 @@ method runs through the same ``evaluate`` loop; only the agent differs.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Protocol
 
 import numpy as np
 import torch
 
+from dynabelief.beliefs.targets import point_targets
 from dynabelief.comm.channel import PacketLossChannel
 from dynabelief.config import Config, config_from_dict
 from dynabelief.envs.pursuit import ActorObs, PursuitEnv
@@ -21,6 +23,11 @@ from dynabelief.training.rollout import summarize_episodes
 from dynabelief.utils.checkpointing import check_compatible, load_checkpoint
 from dynabelief.utils.logging import JsonlWriter
 from dynabelief.utils.seeding import derive_seed, make_rng
+
+
+def _cell_errors(guess: np.ndarray, target: np.ndarray, valid: np.ndarray, scale: np.ndarray):
+    """Euclidean errors in grid cells for the labelled agents."""
+    return np.linalg.norm((guess - target)[valid] * scale, axis=-1).tolist()
 
 
 def eval_seeds(base_seed: int, episodes: int) -> list[int]:
@@ -57,10 +64,12 @@ class MAPPOAgent:
         self.seed, self.device, self.deterministic = seed, torch.device(device), deterministic
         self.hidden: torch.Tensor | None = None
         self.start = True
+        # Point belief [N, 2] (normalized) after the latest act(), if the actor has one.
+        self.last_belief: np.ndarray | None = None
 
     def reset(self, episode: int) -> None:
         torch.manual_seed(derive_seed(self.seed, "eval_policy", episode))
-        self.hidden, self.start = None, True
+        self.hidden, self.start, self.last_belief = None, True, None
 
     def act(self, actor: ActorObs, delivery: np.ndarray | None = None) -> np.ndarray:
         obs = torch.as_tensor(actor.obs, dtype=torch.float32, device=self.device).unsqueeze(0)
@@ -78,6 +87,9 @@ class MAPPOAgent:
         actions, _, self.hidden = self.policy.act(
             obs, self.hidden, start, self.deterministic, delivery=mask, own_pos=own_pos
         )
+        if self.policy.actor.belief_head is not None:
+            with torch.no_grad():
+                self.last_belief = self.policy.actor.belief_head(self.hidden)[0].cpu().numpy()
         self.start = False
         return np.where(actor.agent_mask, actions[0].cpu().numpy(), 0)
 
@@ -88,8 +100,17 @@ def evaluate(
     episodes: int,
     run_dir: Path | None = None,
     extra: dict[str, Any] | None = None,
+    on_step: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
-    """Run ``agent`` on the fixed eval seeds; per-episode records go to ``episodes.jsonl``."""
+    """Run ``agent`` on the fixed eval seeds; per-episode records go to ``episodes.jsonl``.
+
+    For agents with a point belief, each step scores it against the training-only label
+    of the same state (in grid cells) together with two naive references: guessing one's
+    own position and guessing the grid centre. ``on_step`` receives a per-step dict
+    (episode, t, actor, privileged, belief, target, valid) for visualization.
+    """
+    env_cfg = config.env
+    scale = np.array([env_cfg.x_size - 1, env_cfg.y_size - 1], dtype=np.float32)
     seed = config.experiment.seed
     env = PursuitEnv(config.env)
     records: list[dict[str, Any]] = []
@@ -99,8 +120,12 @@ def evaluate(
     writer = JsonlWriter(run_dir / "episodes.jsonl") if run_dir else None
     try:
         for k, episode_seed in enumerate(eval_seeds(seed, episodes)):
-            actor, _ = env.reset(episode_seed)
+            actor, priv = env.reset(episode_seed)
             agent.reset(k)
+            errors: dict[str, list[float]] = {
+                "model": [], "own": [], "centre": [], "remote_model": [], "remote_own": [],
+            }  # fmt: skip
+            labelled, remote, t = 0, 0, 0
             # Fresh per-episode stream: episode k gets the same drop pattern for every
             # method, independent of how long earlier episodes lasted.
             channel = PacketLossChannel(
@@ -117,9 +142,34 @@ def evaluate(
                     # Messages readable now were sent at t-1; none exist at the first step.
                     alive = actor.agent_mask & (not first_step)
                     delivery = channel.sample_delivery(alive)
-                result = env.step(agent.act(actor, delivery))
+                actions = agent.act(actor, delivery)
+                belief = getattr(agent, "last_belief", None)
+                if belief is not None or on_step is not None:
+                    target, valid = point_targets(priv.pursuer_pos, priv.evader_pos,
+                                                  priv.evader_alive, env_cfg.obs_range,
+                                                  (env_cfg.x_size, env_cfg.y_size))  # fmt: skip
+                    if belief is not None and valid.any():
+                        errors["model"] += _cell_errors(belief, target, valid, scale)
+                        errors["own"] += _cell_errors(actor.own_pos, target, valid, scale)
+                        centre = np.full_like(target, 0.5)
+                        errors["centre"] += _cell_errors(centre, target, valid, scale)
+                        labelled += int(valid.sum())
+                        # Remote-only labels: the target is outside the agent's own view, so
+                        # only teammates' messages can tell it where the evader is.
+                        offset = np.abs(np.rint(target * scale) - priv.pursuer_pos)
+                        in_own_view = (offset <= env_cfg.obs_range // 2).all(axis=-1)
+                        far = valid & ~in_own_view
+                        if far.any():
+                            errors["remote_model"] += _cell_errors(belief, target, far, scale)
+                            errors["remote_own"] += _cell_errors(actor.own_pos, target, far, scale)
+                            remote += int(far.sum())
+                    if on_step is not None:
+                        on_step({"episode": k, "t": t, "actor": actor, "privileged": priv,
+                                 "belief": belief, "target": target, "valid": valid})  # fmt: skip
+                result = env.step(actions)
                 first_step = False
-                actor = result.actor
+                actor, priv = result.actor, result.privileged
+                t += 1
                 if result.done:
                     break
             stats = env.episode_stats
@@ -131,6 +181,19 @@ def evaluate(
                 **(extra or {}),
                 **(channel.stats.as_dict() if config.comm.enabled else {}),
             }
+            if errors["model"]:
+                record.update(
+                    belief_error_cells=float(np.mean(errors["model"])),
+                    belief_ref_own_position_cells=float(np.mean(errors["own"])),
+                    belief_ref_grid_centre_cells=float(np.mean(errors["centre"])),
+                    belief_valid_fraction=labelled / (stats.length * env.n_agents),
+                    belief_remote_fraction=remote / max(1, labelled),
+                )
+                if errors["remote_model"]:
+                    record.update(
+                        belief_remote_error_cells=float(np.mean(errors["remote_model"])),
+                        belief_remote_ref_own_position_cells=float(np.mean(errors["remote_own"])),
+                    )
             records.append(record)
             if writer:
                 writer.write(record)
@@ -139,6 +202,17 @@ def evaluate(
         if writer:
             writer.close()
     summary = summarize_episodes(records)
+    belief_keys = ("belief_error_cells", "belief_ref_own_position_cells",
+                   "belief_ref_grid_centre_cells", "belief_valid_fraction")  # fmt: skip
+    if records and all(key in records[0] for key in belief_keys):
+        summary.update({key: float(np.mean([r[key] for r in records])) for key in belief_keys})
+        summary["belief_remote_fraction"] = float(
+            np.mean([r["belief_remote_fraction"] for r in records])
+        )
+        for key in ("belief_remote_error_cells", "belief_remote_ref_own_position_cells"):
+            values = [r[key] for r in records if key in r]
+            if values:
+                summary[key] = float(np.mean(values))
     if config.comm.enabled and records:
         sent = sum(r["messages_sent"] for r in records)
         delivered = sum(r["messages_delivered"] for r in records)

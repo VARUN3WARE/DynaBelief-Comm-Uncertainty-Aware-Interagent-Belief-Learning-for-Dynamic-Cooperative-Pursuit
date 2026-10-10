@@ -71,6 +71,7 @@ def training_job_request(
     eval_episodes: int,
     eval_packet_loss: list[float] | None = None,
     mode: str = "train",
+    checkpoint_uri: str | None = None,
 ) -> dict:
     """``create_training_job`` arguments for script mode in the PyTorch DLC."""
     hyper = {
@@ -113,6 +114,19 @@ def training_job_request(
             {"Key": "config", "Value": config},
         ],
     }
+    if checkpoint_uri:
+        request["InputDataConfig"] = [
+            {
+                "ChannelName": "checkpoint",
+                "DataSource": {
+                    "S3DataSource": {
+                        "S3DataType": "S3Prefix",
+                        "S3Uri": checkpoint_uri,
+                        "S3DataDistributionType": "FullyReplicated",
+                    }
+                },
+            }
+        ]
     if spot:
         request["StoppingCondition"]["MaxWaitTimeInSeconds"] = max_seconds * 2
     return request
@@ -205,6 +219,39 @@ def cmd_test(args: argparse.Namespace) -> int:
     sess.client("sagemaker").create_training_job(**request)
     print(f"launched {name} (pytest, all tests) on {args.instance}; follow with:")
     print(f"  python cloud/launch.py logs {name} --follow")
+    return 0
+
+
+def find_final_checkpoint(sess, bucket: str, job: str) -> str:
+    s3 = sess.client("s3")
+    prefix = f"{PREFIX}/checkpoints/{job}/runs/"
+    keys = [
+        obj["Key"]
+        for page in s3.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix=prefix)
+        for obj in page.get("Contents", [])
+        if obj["Key"].endswith("/checkpoints/final.pt")
+    ]
+    if not keys:
+        raise SystemExit(f"no final.pt for job {job} under s3://{bucket}/{prefix}")
+    return f"s3://{bucket}/{sorted(keys)[-1]}"
+
+
+def cmd_evaluate(args: argparse.Namespace) -> int:
+    """Evaluate a finished training job's final.pt with the current code (CPU job)."""
+    commit = clean_commit()
+    sess = session()
+    region, bucket, role = defaults(sess)
+    checkpoint = find_final_checkpoint(sess, bucket, args.job)
+    suffix = args.job.removeprefix(f"{PREFIX}-")[:32].rstrip("-")
+    name = f"{PREFIX}-eval-{suffix}-{datetime.now(UTC):%m%d-%H%M%S}"[:63].rstrip("-")
+    request = training_job_request(
+        name=name, region=region, role_arn=args.role or role, bucket=bucket,
+        source_uri=upload_source(sess, bucket, commit), commit=commit, config="", overrides=[],
+        instance_type=args.instance, spot=False, max_hours=2.0, eval_episodes=args.episodes,
+        eval_packet_loss=args.eval_packet_loss, mode="evaluate", checkpoint_uri=checkpoint,
+    )  # fmt: skip
+    sess.client("sagemaker").create_training_job(**request)
+    print(f"launched {name}\n  checkpoint {checkpoint}\n  instance {args.instance}")
     return 0
 
 
@@ -309,6 +356,15 @@ def main(argv: list[str] | None = None) -> int:
     test.add_argument("--instance", default="ml.c5.2xlarge")
     test.add_argument("--role", help="execution role ARN")
     test.set_defaults(func=cmd_test)
+
+    evaluate = sub.add_parser("evaluate", help="evaluate a finished job's final.pt (CPU job)")
+    evaluate.add_argument("job", help="training job name")
+    evaluate.add_argument("--instance", default="ml.c5.4xlarge")
+    evaluate.add_argument("--episodes", type=int, default=50)
+    evaluate.add_argument("--eval-packet-loss", type=float, nargs="*",
+                          default=[0.0, 0.1, 0.2, 0.3])  # fmt: skip
+    evaluate.add_argument("--role", help="execution role ARN")
+    evaluate.set_defaults(func=cmd_evaluate)
 
     status = sub.add_parser("status", help="list recent dynabelief jobs")
     status.add_argument("-n", type=int, default=10)
