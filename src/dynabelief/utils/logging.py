@@ -130,18 +130,27 @@ def _jsonable(value: Any) -> Any:
 
 
 class JsonlWriter:
-    """Append-only JSON-lines log. Non-finite floats raise instead of being written."""
+    """Append-only JSON-lines log. Non-finite floats raise instead of being written.
+
+    Each record is appended with open-write-close: SageMaker's checkpoint sync uploads a
+    file when it is closed, so a handle kept open would hide live metrics until the job
+    ends (observed: mid-run S3 had checkpoints but no metrics.jsonl).
+    """
 
     def __init__(self, path: Path) -> None:
-        self.path = path
-        self._handle = open(path, "a", encoding="utf-8")
+        self.path = Path(path)
+        self.path.touch()
+        self._closed = False
 
     def write(self, record: dict[str, Any]) -> None:
-        self._handle.write(json.dumps(_jsonable(record), allow_nan=False) + "\n")
-        self._handle.flush()
+        if self._closed:
+            raise ValueError(f"{self.path} writer is closed")
+        line = json.dumps(_jsonable(record), allow_nan=False) + "\n"
+        with open(self.path, "a", encoding="utf-8") as handle:
+            handle.write(line)
 
     def close(self) -> None:
-        self._handle.close()
+        self._closed = True
 
     def __enter__(self) -> JsonlWriter:
         return self

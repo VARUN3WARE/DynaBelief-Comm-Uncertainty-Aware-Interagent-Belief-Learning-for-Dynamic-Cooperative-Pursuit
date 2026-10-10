@@ -222,17 +222,17 @@ def cmd_test(args: argparse.Namespace) -> int:
     return 0
 
 
-def find_final_checkpoint(sess, bucket: str, job: str) -> str:
+def find_final_checkpoint(sess, bucket: str, job: str, which: str = "final") -> str:
     s3 = sess.client("s3")
     prefix = f"{PREFIX}/checkpoints/{job}/runs/"
     keys = [
         obj["Key"]
         for page in s3.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix=prefix)
         for obj in page.get("Contents", [])
-        if obj["Key"].endswith("/checkpoints/final.pt")
+        if obj["Key"].endswith(f"/checkpoints/{which}.pt")
     ]
     if not keys:
-        raise SystemExit(f"no final.pt for job {job} under s3://{bucket}/{prefix}")
+        raise SystemExit(f"no {which}.pt for job {job} under s3://{bucket}/{prefix}")
     return f"s3://{bucket}/{sorted(keys)[-1]}"
 
 
@@ -241,9 +241,10 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
     commit = clean_commit()
     sess = session()
     region, bucket, role = defaults(sess)
-    checkpoint = find_final_checkpoint(sess, bucket, args.job)
-    suffix = args.job.removeprefix(f"{PREFIX}-")[:32].rstrip("-")
-    name = f"{PREFIX}-eval-{suffix}-{datetime.now(UTC):%m%d-%H%M%S}"[:63].rstrip("-")
+    checkpoint = find_final_checkpoint(sess, bucket, args.job, args.which)
+    suffix = args.job.removeprefix(f"{PREFIX}-")[:28].rstrip("-")
+    tag = "" if args.which == "final" else f"-{args.which}"
+    name = f"{PREFIX}-eval-{suffix}{tag}-{datetime.now(UTC):%m%d-%H%M%S}"[:63].rstrip("-")
     request = training_job_request(
         name=name, region=region, role_arn=args.role or role, bucket=bucket,
         source_uri=upload_source(sess, bucket, commit), commit=commit, config="", overrides=[],
@@ -361,6 +362,9 @@ def main(argv: list[str] | None = None) -> int:
     evaluate.add_argument("job", help="training job name")
     evaluate.add_argument("--instance", default="ml.c5.4xlarge")
     evaluate.add_argument("--episodes", type=int, default=50)
+    evaluate.add_argument("--which", choices=("final", "best", "latest"), default="final",
+                          help="checkpoint to evaluate (best = peak training window; declare "
+                               "it as early stopping when reporting)")  # fmt: skip
     evaluate.add_argument("--eval-packet-loss", type=float, nargs="*",
                           default=[0.0, 0.1, 0.2, 0.3])  # fmt: skip
     evaluate.add_argument("--role", help="execution role ARN")
