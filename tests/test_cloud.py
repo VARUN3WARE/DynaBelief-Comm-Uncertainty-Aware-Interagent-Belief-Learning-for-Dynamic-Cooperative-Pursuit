@@ -62,7 +62,10 @@ def test_training_job_request_shape():
     hyper = {k: json.loads(v) for k, v in r["HyperParameters"].items()}  # all JSON strings
     assert hyper["sagemaker_program"] == "cloud/sagemaker_entry.py"
     assert hyper["sagemaker_submit_directory"] == "s3://b/src.tar.gz"
-    assert hyper["overrides"] == "experiment.seed=1;train.total_env_steps=100"
+    assert entry.decode_list(hyper["overrides_b64"]) == [
+        "experiment.seed=1",
+        "train.total_env_steps=100",
+    ]
     # The toolkit passes this to logging.basicConfig(level=...): it must decode to an int.
     assert hyper["sagemaker_container_log_level"] == 20
     assert hyper["eval_episodes"] == 50
@@ -106,15 +109,14 @@ def test_git_state_falls_back_to_launcher_commit(monkeypatch, tmp_path):
 
 def test_empty_overrides_are_omitted_and_bare_flag_parses():
     hyper = request(overrides=[])["HyperParameters"]
-    assert "overrides" not in hyper
-    args = entry.parse_args(["--config", "c.yaml", "--eval_episodes", "2", "--overrides"])
-    assert args.overrides == "" and args.eval_episodes == 2
-    args = entry.parse_args(["--config", "c.yaml", "--overrides", "a.b=1;c.d=2"])
-    assert args.overrides == "a.b=1;c.d=2"
+    assert "overrides_b64" not in hyper
+    args = entry.parse_args(["--config", "c.yaml", "--eval_episodes", "2", "--overrides_b64"])
+    assert args.overrides_b64 == "" and args.eval_episodes == 2
+    assert entry.decode_list(args.overrides_b64) == []
 
 
 def test_eval_plan_sweeps_packet_loss_only_with_comm():
-    plan = entry.eval_plan(True, 0.0, "0;0.1;0.2;0.3")
+    plan = entry.eval_plan(True, 0.0, "0,0.1,0.2,0.3")
     assert [label for label, _ in plan] == [
         "sampled_loss0",
         "sampled_loss0.1",
@@ -124,7 +126,7 @@ def test_eval_plan_sweeps_packet_loss_only_with_comm():
     ]
     assert plan[2][1] == ["--packet-loss", "0.2"]
     assert plan[-1][1] == ["--deterministic", "--packet-loss", "0.0"]
-    no_comm = entry.eval_plan(False, 0.0, "0;0.1")
+    no_comm = entry.eval_plan(False, 0.0, "0,0.1")
     assert [label for label, _ in no_comm] == ["sampled", "greedy"]
     assert [label for label, _ in entry.eval_plan(True, 0.2, "")] == ["sampled", "greedy"]
 
@@ -134,7 +136,7 @@ def test_request_carries_mode_and_sweep():
         k: json.loads(v)
         for k, v in request(eval_packet_loss=[0.0, 0.25])["HyperParameters"].items()
     }
-    assert hyper["mode"] == "train" and hyper["eval_packet_loss"] == "0;0.25"
+    assert hyper["mode"] == "train" and hyper["eval_packet_loss"] == "0,0.25"
     tests_req = request(mode="tests", config="", overrides=[], eval_episodes=0)
     tests_hyper = {k: json.loads(v) for k, v in tests_req["HyperParameters"].items()}
     assert tests_hyper["mode"] == "tests" and "config" not in tests_hyper
@@ -144,3 +146,16 @@ def test_tests_mode_needs_no_config_but_train_does():
     assert entry.parse_args(["--mode", "tests"]).mode == "tests"
     with pytest.raises(SystemExit):
         entry.parse_args(["--mode", "train"])
+
+
+def test_hyperparameters_are_shell_safe():
+    """Regression: the DLC toolkit pastes values unquoted into a shell command."""
+    import re
+
+    nasty = ["env.n_pursuers=6", "experiment.name=a b;c", "x.y=$(rm -rf /)", "a.b='q'"]
+    for r in (request(overrides=nasty, eval_packet_loss=[0, 0.1, 0.2, 0.3]),
+              request(mode="tests", config="", overrides=[], eval_episodes=0)):  # fmt: skip
+        for key, value in r["HyperParameters"].items():
+            decoded = json.loads(value)
+            assert re.fullmatch(r"[A-Za-z0-9_.,:/=+-]*", str(decoded)), (key, decoded)
+    assert entry.decode_list(launch.encode_list(nasty)) == nasty

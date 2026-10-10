@@ -38,6 +38,12 @@ ENTRY = "cloud/sagemaker_entry.py"
 
 
 # --------------------------------------------------------------------- pure helpers
+def encode_list(items: list[str]) -> str:
+    import base64
+
+    return base64.b64encode(json.dumps(items).encode()).decode()
+
+
 def image_uri(region: str, instance_type: str) -> str:
     gpu = instance_type.split(".")[1].startswith(("g", "p"))
     return IMAGE.format(region=region, kind="gpu" if gpu else "cpu", cuda="-cu124" if gpu else "")
@@ -74,9 +80,11 @@ def training_job_request(
         "sagemaker_container_log_level": 20,  # must decode to an int (logging level)
         "mode": mode,
         "config": config,
-        "overrides": ";".join(overrides),
+        # The toolkit pastes values UNQUOTED into a shell command (a ';' in a value ran as
+        # a separate command), so free-form values travel as base64 JSON.
+        "overrides_b64": encode_list(overrides) if overrides else "",
         "eval_episodes": eval_episodes,
-        "eval_packet_loss": ";".join(f"{x:g}" for x in eval_packet_loss or []),
+        "eval_packet_loss": ",".join(f"{x:g}" for x in eval_packet_loss or []),
     }
     max_seconds = int(max_hours * 3600)
     request = {

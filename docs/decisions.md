@@ -49,3 +49,17 @@ Commit hashes refer to the current (rewritten) history.
 | D21 | 10-07 | Plan: develop on the PC, use SageMaker for the M7 sweeps | PC: RTX 3050 4 GB, 16 threads; simulator ~360 env steps/s per process |
 | D22 | 10-07 | **Changed (user decision): all training runs on SageMaker** | The PC is shared with other heavy jobs, and the local 5M-step baseline was killed at 3.84M steps when the session ended |
 | D23 | 10-07 | **Changed:** SageMaker **GPU** instances (`ml.g4dn.8xlarge`), not CPU-only ones | One PPO update at the baseline batch: 1.5 s on GPU vs 14.4 s on CPU (4 or 8 threads), i.e. ~5 h of updates per 5M-step run on CPU. The vCPUs run the env workers |
+
+## Communication (M3)
+
+| ID | Date | Decision | Evidence / reason |
+|---|---|---|---|
+| D25 | 10-10 | TarMAC with one round per step: key, value and query from each agent's **previous** hidden state; attention over delivered messages only; context concatenated to the GRU input | Matches the one-step-delay contract; keeps a differentiable receiver → message → sender path inside a training chunk (tested), needed for D-DIABL |
+| D26 | 10-10 | Undelivered messages get −∞ attention scores; no deliveries → context 0; nothing is read or counted at an episode start | Tests: a dropped message changes neither output nor gradient; "phantom" bias-only messages at a start are excluded (a mutation of this mask survived until biases were made non-zero) |
+| D27 | 10-10 | A transmitted message = key + value (16 + 16 float32 = 128 bytes); the query stays local | Message cost accounting for bytes per capture |
+| D28 | 10-10 | Train TarMAC **lossless**; evaluate the same checkpoint at 0 / 10 / 20 / 30 % packet loss | Isolates robustness to unseen loss; training under loss can be a later ablation |
+| D29 | 10-10 | `tarmac.yaml` = `no_comm.yaml` + communication only | Any difference in results is due to communication |
+| D30 | 10-10 | The full test suite (including slow tests) runs as a SageMaker job (`cloud/launch.py test`); the PC runs only the fast unit tests | User decision: all heavy work on AWS |
+
+Note for later tuning: with a single delivered message the softmax weight is exactly 1, so key and
+query only learn when at least two messages compete for a receiver.

@@ -57,12 +57,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--mode", choices=("train", "tests"), default="train")
     parser.add_argument("--config", help="repo-relative config (train mode)")
-    # nargs="?": the toolkit passes a bare flag when a value is empty.
-    parser.add_argument("--overrides", nargs="?", const="", default="",
-                        help="';'-separated section.key=value")  # fmt: skip
+    # nargs="?": the toolkit passes a bare flag when a value is empty. Values arrive
+    # unquoted on a shell command line, hence base64 JSON for free-form overrides.
+    parser.add_argument("--overrides_b64", nargs="?", const="", default="",
+                        help="base64 JSON list of section.key=value")  # fmt: skip
     parser.add_argument("--eval_episodes", type=int, default=50)
     parser.add_argument("--eval_packet_loss", nargs="?", const="", default="",
-                        help="';'-separated loss sweep for sampled evals")  # fmt: skip
+                        help="comma-separated loss sweep for sampled evals")  # fmt: skip
     parser.add_argument("--workers", type=int, default=0, help="0 = derive from vCPUs")
     parser.add_argument("--torch_threads", type=int, default=2)
     parser.add_argument("--skip_install", action="store_true", help="local testing only")
@@ -74,10 +75,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return args
 
 
+def decode_list(encoded: str) -> list[str]:
+    import base64
+    import json
+
+    return json.loads(base64.b64decode(encoded)) if encoded else []
+
+
 def eval_plan(comm_enabled: bool, train_loss: float, sweep: str) -> list[tuple[str, list[str]]]:
     """(label, extra evaluate.py args): sampled actions at every swept packet loss (or at
     the training loss) plus greedy actions at the training loss."""
-    losses = [float(x) for x in sweep.split(";") if x.strip()] if comm_enabled else []
+    losses = [float(x) for x in sweep.split(",") if x.strip()] if comm_enabled else []
     plan = [(f"sampled_loss{loss:g}", ["--packet-loss", str(loss)]) for loss in losses]
     if not plan:
         plan = [("sampled", [])]
@@ -102,7 +110,7 @@ def main() -> int:
         run([sys.executable, "-m", "pip", "install", "--no-cache-dir", "--quiet", "."])
     from dynabelief.config import load_config, parse_override
 
-    overrides = [o for o in args.overrides.split(";") if o.strip()]
+    overrides = decode_list(args.overrides_b64)
     config = load_config(CODE / args.config, dict(parse_override(o) for o in overrides))
     workers = args.workers or pick_workers(config.train.num_envs, os.cpu_count() or 2)
     overrides += [f"train.num_workers={workers}", f"train.torch_threads={args.torch_threads}"]
