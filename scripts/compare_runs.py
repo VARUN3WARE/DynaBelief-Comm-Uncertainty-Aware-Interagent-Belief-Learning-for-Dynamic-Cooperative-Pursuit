@@ -119,8 +119,11 @@ def plot(runs: dict[str, dict], losses: list[float], out: Path) -> None:
                if "window_mean_capture_rate" in m]  # fmt: skip
         xs, ys = zip(*pts, strict=True)
         curve.plot(xs, ys, color=color, linewidth=2, label=name)
-        curve.annotate(name, (xs[-1], ys[-1]), xytext=(4, 0), textcoords="offset points",
-                       va="center", fontsize=8, color=TEXT)  # fmt: skip
+        if "sampled" in run["evals"]:  # no communication: one eval, independent of loss
+            cap = mean_ci([r["capture_rate"] for r in run["evals"]["sampled"]])[0]
+            sweep.axhline(cap, color=color, linewidth=2, linestyle=(0, (4, 3)),
+                          label=f"{name} (no messages)")  # fmt: skip
+            continue
         values = []
         for loss in losses:
             label = eval_label_for_loss(run["evals"], loss)

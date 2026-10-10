@@ -31,7 +31,7 @@ What happened, in order, with the commit and the key number. Decisions are in
 | `8fada31` | **M3.2** comm through trainer, buffer, checkpoints, eval | Recomputed log-probs equal stored ones **with** messages and differ without them, so comm is really used; channel RNG saved on resume |
 | `8ce5b58` | **M3.3** configs + cloud eval sweep + AWS test jobs | `tarmac.yaml` = `no_comm.yaml` + comm; full suite on AWS: **209 passed** (ml.c5.2xlarge, 2.6 min) |
 | `8035b23` | Cloud fix | Toolkit passes hyperparameters unquoted to a shell: `;` in the loss sweep ran as commands. Now base64/comma encoded; smoke job on AWS completed with all 5 evals |
-| `8035b23` | **M3 TarMAC run** (`dynabelief-tarmac-s0-20261010-163342`, `ml.g4dn.8xlarge`) | Left running at end of day (5M steps, evals at 0 / 10 / 20 / 30 % loss). At 0.36M steps: capture rate 0.49 vs ~0.42 for No-Comm at 0.5M. **Result pending**: `python cloud/launch.py download dynabelief-tarmac-s0-20261010-163342` |
+| `8035b23` | **M3 TarMAC run** (`dynabelief-tarmac-s0-20261010-163342`, `ml.g4dn.8xlarge`, $5.2) | Capture rate **0.561** vs 0.537 No-Comm (paired Δ +0.024 ± 0.032, n.s.); same plateau reached ~2× faster; flat under 0–30 % packet loss ([result](results/m3_tarmac.md)). **M3 complete** |
 | `a9762d1` | **M4.1** optional own-position input (D31) | Needed for absolute-coordinate beliefs; off by default, M2/M3 unchanged |
 | `80e0183` | **M4.2** point-belief labels | Nearest team-visible evader; aligned with the simulator on 50+ real targets |
 | `88ab496` | **M4.3** point-belief DIABL head + loss | A receiver's belief trains the sender only through delivered messages; logged sender-side gradient |

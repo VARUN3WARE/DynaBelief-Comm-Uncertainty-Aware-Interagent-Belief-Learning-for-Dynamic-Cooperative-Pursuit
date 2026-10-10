@@ -12,6 +12,7 @@ Results so far:
 - [m2_learning_check.md](results/m2_learning_check.md): MAPPO solves an easy Pursuit variant (capture rate 0.39 → 1.00)
 - [m2_baseline.md](results/m2_baseline.md): **M2 baseline** (No-Comm MAPPO, SageMaker): capture rate 0.54–0.55 vs 0.029 random on 50 held-out episodes
 - [m2_local_baseline_partial.md](results/m2_local_baseline_partial.md): first attempt on the PC, interrupted at 3.84M steps (superseded; same plateau)
+- [m3_tarmac.md](results/m3_tarmac.md): **M3 TarMAC**: same plateau as No-Comm (0.561 vs 0.537, n.s.), reached ~2× faster, unaffected by 0–30 % packet loss
 
 Rules: numbers are computed from saved raw run records (`metrics.jsonl`, `episodes.jsonl`), not typed
 in by hand. Each note states the commit, config, seed and hardware. Superseded results are kept and
