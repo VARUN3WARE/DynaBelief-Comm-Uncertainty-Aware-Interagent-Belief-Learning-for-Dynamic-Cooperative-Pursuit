@@ -1,0 +1,63 @@
+# M4 control: tarmac.yaml + own-position input (D31). Compare point_diabl.yaml against THIS,
+# so a difference is due to the belief loss + replay, not the extra input.
+# Hyperparameters follow MAPPO defaults; they get frozen before M7 comparisons.
+experiment:
+  name: tarmac_pos
+  seed: 0
+  device: auto
+  output_dir: runs
+  deterministic: true       # bit-reproducible GPU training (needed for seed-level M7 results)
+
+env:
+  x_size: 16
+  y_size: 16
+  n_pursuers: 8
+  n_evaders: 30
+  obs_range: 7
+  max_cycles: 500
+  n_catch: 2
+  freeze_evaders: false
+  shared_reward: true
+  surround: true
+
+comm:
+  enabled: true             # TarMAC: key + value message per directed link
+  key_dim: 16
+  message_dim: 16
+  packet_loss: 0.0          # train lossless; robustness is evaluated at 0-30 % loss
+  delay_steps: 1
+
+train:
+  policy: mappo
+  # 32 envs x 128 steps = 4096 env steps (32k agent steps) per update. Measured on an
+  # i5-12500H: ~1,200 env steps/s collection with 12 workers vs ~690 with 16 envs/8
+  # workers (each vector step waits for the slowest worker). Keep identical across
+  # all compared methods.
+  num_envs: 32
+  num_workers: 12
+  rollout_length: 128
+  total_env_steps: 5000000
+  checkpoint_every_updates: 20
+
+model:
+  hidden_dim: 128
+  conv_channels: 32
+  critic_hidden_dim: 128
+  use_own_position: true
+
+ppo:
+  lr_actor: 0.0005
+  lr_critic: 0.0005
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip_eps: 0.2
+  value_clip_eps: 0.2
+  epochs: 5
+  num_minibatches: 4
+  chunk_length: 16
+  entropy_coef: 0.01
+  value_coef: 1.0
+  max_grad_norm: 10.0
+  huber_delta: 10.0
+  use_value_norm: true
+  normalize_advantages: true

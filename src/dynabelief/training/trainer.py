@@ -16,13 +16,14 @@ import numpy as np
 import torch
 
 from dynabelief.algorithms.mappo import MAPPO
-from dynabelief.beliefs.targets import point_targets
+from dynabelief.beliefs.targets import point_targets, visible_evaders
 from dynabelief.comm.channel import PacketLossChannel
 from dynabelief.config import Config
 from dynabelief.envs.pursuit import PrivilegedInfo, stack_privileged
 from dynabelief.envs.vector import PursuitVecEnv
 from dynabelief.models.actor_critic import MAPPOPolicy
 from dynabelief.models.comm import TarMACComm
+from dynabelief.replay.infer import EventReplayBuffer, first_sightings
 from dynabelief.training.buffer import RolloutBuffer
 from dynabelief.training.rollout import summarize_episodes
 from dynabelief.utils.checkpointing import (
@@ -95,6 +96,20 @@ class MAPPOTrainer:
             )
             self.policy.to(self.device)
             generator = torch.Generator().manual_seed(derive_seed(seed, "minibatch"))
+            # InfER buffer (not checkpointed: a resumed run refills it from new episodes).
+            self.replay = (
+                EventReplayBuffer(
+                    config.replay.capacity,
+                    config.replay.window,
+                    self.vec.n_agents,
+                    self.vec.obs_shape,
+                    config.model.hidden_dim,
+                    torch.Generator().manual_seed(derive_seed(seed, "replay")),
+                )
+                if config.replay.type != "none"
+                else None
+            )
+            self._seen = np.zeros((train.num_envs, config.env.n_evaders), dtype=bool)
             self.algo = MAPPO(
                 self.policy,
                 config.ppo,
@@ -102,6 +117,8 @@ class MAPPOTrainer:
                 generator,
                 belief_coef=config.belief.coef if config.belief.type != "none" else 0.0,
                 grid_scale=float(config.env.x_size - 1),
+                replay=self.replay,
+                replay_config=config.replay if self.replay is not None else None,
             )
             self.buffer = RolloutBuffer(
                 train.rollout_length,
@@ -168,7 +185,8 @@ class MAPPOTrainer:
         n = self.vec.n_agents
         uses_pos = self.policy.actor.use_own_position
         env_cfg = self.config.env
-        for _ in range(buf.T):
+        events = torch.zeros(buf.T, self.vec.num_envs, dtype=torch.bool)
+        for t in range(buf.T):
             obs = self._t(actor.obs, torch.float32)
             own_pos = self._t(actor.own_pos, torch.float32)
             if self.channel is not None:
@@ -191,6 +209,13 @@ class MAPPOTrainer:
                 entropy_sum += float(TarMACComm.attention_entropy(attention, delivery))
                 entropy_n += 1
             values = self._critic_values(priv)
+            # InfER events: an evader seen by the team for the first time this episode.
+            if self.replay is not None:
+                self._seen[start.cpu().numpy()] = False
+                visible = visible_evaders(priv.pursuer_pos, priv.evader_pos, priv.evader_alive,
+                                          env_cfg.obs_range).any(axis=-2)  # fmt: skip
+                events[t] = torch.from_numpy(first_sightings(visible, self._seen).any(axis=-1))
+                self._seen |= visible
             # TRAINING-ONLY labels for the state the actor just acted in (loss input only).
             if self.config.belief.type == "point":
                 target, valid = point_targets(priv.pursuer_pos, priv.evader_pos,
@@ -237,6 +262,15 @@ class MAPPOTrainer:
             hidden, start = new_hidden, self._t(result.done, torch.bool)
 
         self.algo.compute_returns(buf, self._critic_values(priv))
+        self._replay_metrics = {}
+        if self.replay is not None:
+            skipped_before = self.replay.skipped
+            added = self.replay.add_from_rollout(buf, events)
+            self._replay_metrics = {
+                "replay_events": int(events.sum()),
+                "replay_windows_added": added,
+                "replay_windows_skipped": self.replay.skipped - skipped_before,
+            }
         self._comm_metrics = {}
         if self.channel is not None:
             self._comm_metrics = {
@@ -313,6 +347,7 @@ class MAPPOTrainer:
                     **{f"window_{k}": v for k, v in window.items() if v is not None},
                     **update_metrics,
                     **self._comm_metrics,
+                    **self._replay_metrics,
                     **resource_usage(),
                 }
                 if metrics_log:

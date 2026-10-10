@@ -109,6 +109,8 @@ class MAPPO:
         generator: torch.Generator,
         belief_coef: float = 0.0,
         grid_scale: float = 1.0,
+        replay=None,
+        replay_config=None,
     ) -> None:
         """``belief_coef`` weights the belief loss in the actor loss; ``grid_scale`` converts
         normalized belief errors to grid cells for logging (x_size - 1)."""
@@ -125,6 +127,14 @@ class MAPPO:
             policy.critic.parameters(), lr=config.lr_critic, eps=config.adam_eps
         )
         self.value_norm = ValueNorm().to(self.device) if config.use_value_norm else None
+        # InfER: replay buffer of event windows + its own optimizer (belief loss only).
+        self.replay = replay
+        self.replay_config = replay_config
+        self.replay_optimizer = (
+            torch.optim.Adam(policy.actor.parameters(), lr=replay_config.lr, eps=config.adam_eps)
+            if replay is not None
+            else None
+        )
 
     # ------------------------------------------------------------ state io
     def state_dict(self) -> dict:
@@ -133,6 +143,9 @@ class MAPPO:
             "actor_optimizer": self.actor_optimizer.state_dict(),
             "critic_optimizer": self.critic_optimizer.state_dict(),
             "value_norm": self.value_norm.state_dict() if self.value_norm is not None else None,
+            "replay_optimizer": (
+                self.replay_optimizer.state_dict() if self.replay_optimizer is not None else None
+            ),
         }
 
     def load_state_dict(self, state: dict) -> None:
@@ -143,6 +156,8 @@ class MAPPO:
             raise ValueError("checkpoint and config disagree on ppo.use_value_norm")
         if self.value_norm is not None:
             self.value_norm.load_state_dict(state["value_norm"])
+        if self.replay_optimizer is not None and state.get("replay_optimizer") is not None:
+            self.replay_optimizer.load_state_dict(state["replay_optimizer"])
 
     # ---------------------------------------------------------------- values
     def _to_return_units(self, raw: torch.Tensor) -> torch.Tensor:
@@ -227,6 +242,29 @@ class MAPPO:
         squares = [g.pow(2).sum() for g in grads if g is not None]
         return float(torch.stack(squares).sum().sqrt()) if squares else 0.0
 
+    def replay_step(self) -> float:
+        """One InfER step: belief loss on uniformly sampled event windows, fully delivered
+        messages, gradients through all window steps. Updates the actor only."""
+        actor, cfg = self.policy.actor, self.replay_config
+        batch = self.replay.sample(cfg.batch, self.device)
+        _, hiddens = actor.unroll(
+            batch.obs,
+            batch.hidden0,
+            batch.episode_start,
+            batch.delivery if actor.comm is not None else None,
+            batch.own_pos if actor.use_own_position else None,
+            return_hidden=True,
+        )
+        squared = (actor.belief_head(hiddens) - batch.belief_target).pow(2).sum(-1)
+        loss = masked_mean(squared, batch.belief_valid & batch.agent_mask)
+        if not torch.isfinite(loss):
+            raise RuntimeError(f"non-finite replay belief loss {loss.item()}")
+        self.replay_optimizer.zero_grad(set_to_none=True)
+        (cfg.coef * loss).backward()
+        torch.nn.utils.clip_grad_norm_(actor.parameters(), self.config.max_grad_norm)
+        self.replay_optimizer.step()
+        return loss.item()
+
     def update(self, buffer: RolloutBuffer) -> dict[str, float]:
         """Run ``epochs`` x ``num_minibatches`` PPO steps on a full buffer."""
         cfg = self.config
@@ -248,6 +286,7 @@ class MAPPO:
 
         sums: dict[str, float] = {}
         n_steps = 0
+        replay_sum, n_replay = 0.0, 0
         stopped_early = False
         self.policy.train()
         for _epoch in range(cfg.epochs):
@@ -290,6 +329,9 @@ class MAPPO:
                     raise RuntimeError("non-finite gradient norm")
                 self.actor_optimizer.step()
                 self.critic_optimizer.step()
+                if self.replay is not None and len(self.replay) > 0:
+                    replay_sum += self.replay_step()
+                    n_replay += 1
 
                 record = {
                     "policy_loss": terms.policy_loss.item(),
@@ -314,6 +356,11 @@ class MAPPO:
         once = {"belief_sender_grad_norm"}  # recorded on the first minibatch only
         metrics = {key: value if key in once else value / n_steps for key, value in sums.items()}
         metrics.update(diagnostics)
+        if self.replay is not None:
+            metrics["replay_steps"] = n_replay
+            metrics["replay_size"] = len(self.replay)
+            if n_replay:
+                metrics["replay_belief_loss"] = replay_sum / n_replay
         metrics["gradient_steps"] = n_steps
         metrics["kl_early_stop"] = float(stopped_early)
         return {k: v for k, v in metrics.items() if not (isinstance(v, float) and math.isnan(v))}

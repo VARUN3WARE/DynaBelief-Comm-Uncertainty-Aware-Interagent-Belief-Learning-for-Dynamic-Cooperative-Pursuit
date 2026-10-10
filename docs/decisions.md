@@ -63,3 +63,13 @@ Commit hashes refer to the current (rewritten) history.
 
 Note for later tuning: with a single delivered message the softmax weight is exactly 1, so key and
 query only learn when at least two messages compete for a receiver.
+
+## Beliefs and replay (M4)
+
+| ID | Date | Decision | Evidence / reason |
+|---|---|---|---|
+| D31 | 10-10 | Optional actor input: the agent's **own** normalized (x, y) (`model.use_own_position`) | DIABL assumes agents know their own coordinates and regresses absolute target positions; with only an egocentric 7×7 view a receiver cannot place "a teammate sees an evader" on the map. Own position is the agent's own state (GPS-like), not other agents' data. Off by default, so M2/M3 stay as run |
+| D32 | 10-10 | M4 is compared against **`tarmac_pos`** (TarMAC + own position), not against `tarmac` | Otherwise a gain could come from the extra input instead of DIABL. For M7, all methods should use the same input set: decide whether every method gets own position |
+| D33 | 10-10 | Point-belief target = nearest evader that **the team currently sees**, absolute normalized coordinates; no label when the team sees none | Paper's "found" rule (unfound targets are guesswork). Unseen closer evaders are ignored (tested) |
+| D34 | 10-10 | Belief head reads the post-message hidden state; loss = squared Euclidean error × `belief.coef` (1.0) in the actor loss | Paper Eq. 19. The gradient reaches the sender only through delivered messages (tested); logged as `belief_sender_grad_norm` |
+| D35 | 10-10 | InfER: windows of 16 steps from each evader's first discovery, all agents, skipped (not cut) at episode/rollout ends; ring buffer of 2,000; one replay step (16 windows, full delivery, belief loss only, separate Adam) after every PPO minibatch step | Paper Algorithm 1. Belief-only updates avoid off-policy corrections. The replay buffer is not checkpointed (refilled after a resume) |

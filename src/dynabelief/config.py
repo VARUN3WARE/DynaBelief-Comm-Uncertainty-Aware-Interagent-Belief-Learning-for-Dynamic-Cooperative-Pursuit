@@ -266,6 +266,29 @@ class BeliefConfig:
         _require(self.coef >= 0.0, "belief.coef must be >= 0")
 
 
+REPLAY_TYPES = ("none", "uniform")
+
+
+@dataclass(frozen=True)
+class ReplayConfig:
+    """Informative Event Replay for the belief loss. ``uniform`` (M4): windows that start
+    at an evader's first discovery, sampled uniformly; one replay step after every PPO
+    minibatch step (paper, Algorithm 1)."""
+
+    type: str = "none"
+    capacity: int = 2000  # stored windows (bounded memory)
+    window: int = 16  # T_r steps per window
+    batch: int = 16  # windows per replay step
+    coef: float = 1.0  # weight of the replayed belief loss
+    lr: float = 5e-4  # separate Adam for replay steps (keeps PPO's moments clean)
+
+    def validate(self) -> None:
+        _require(self.type in REPLAY_TYPES, f"replay.type must be one of {REPLAY_TYPES}")
+        for name in ("capacity", "window", "batch"):
+            _require(getattr(self, name) >= 1, f"replay.{name} must be >= 1")
+        _require(self.coef >= 0.0 and self.lr > 0.0, "replay.coef >= 0 and replay.lr > 0")
+
+
 @dataclass(frozen=True)
 class Config:
     experiment: ExperimentConfig = field(default_factory=ExperimentConfig)
@@ -275,6 +298,7 @@ class Config:
     model: ModelConfig = field(default_factory=ModelConfig)
     ppo: PPOConfig = field(default_factory=PPOConfig)
     belief: BeliefConfig = field(default_factory=BeliefConfig)
+    replay: ReplayConfig = field(default_factory=ReplayConfig)
 
     def validate(self) -> None:
         for section in dataclasses.fields(self):
@@ -284,6 +308,12 @@ class Config:
                 self.comm.enabled and self.model.use_own_position,
                 "belief learning needs comm.enabled (beliefs are learned THROUGH the channel) "
                 "and model.use_own_position (targets are absolute coordinates; D31)",
+            )
+        if self.replay.type != "none":
+            _require(self.belief.type != "none", "replay replays the belief loss: set belief.type")
+            _require(
+                self.replay.window <= self.train.rollout_length,
+                "replay.window must fit inside one rollout (train.rollout_length)",
             )
         if self.train.policy == "mappo":
             train, ppo = self.train, self.ppo
