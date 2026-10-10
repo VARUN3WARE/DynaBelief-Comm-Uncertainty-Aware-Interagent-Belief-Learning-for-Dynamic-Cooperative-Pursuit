@@ -33,6 +33,7 @@ class Minibatch:
     returns: torch.Tensor  # [L, B, N]  (return units)
     agent_mask: torch.Tensor  # [L, B, N]
     delivery: torch.Tensor  # [L, B, N_recv, N_send] messages readable at each step
+    own_pos: torch.Tensor  # [L, B, N, 2] each agent's own normalized position
     global_state: torch.Tensor  # [L, B, C, Y, X]
     pursuer_pos: torch.Tensor  # [L, B, N, 2]
     step: torch.Tensor  # [L, B]
@@ -65,6 +66,7 @@ class RolloutBuffer:
         self.rewards = zeros(T, E, N)
         self.agent_mask = zeros(T, E, N, dtype=torch.bool)
         self.delivery = zeros(T, E, N, N, dtype=torch.bool)
+        self.own_pos = zeros(T, E, N, 2)
         self.terminated = zeros(T, E, dtype=torch.bool)
         self.truncated = zeros(T, E, dtype=torch.bool)
         self.final_values = zeros(T, E, N)
@@ -85,7 +87,8 @@ class RolloutBuffer:
             raise RuntimeError("buffer is full; call reset() after the update")
         required = {
             "obs", "episode_start", "actor_hidden", "actions", "log_probs", "values",
-            "rewards", "agent_mask", "delivery", "terminated", "truncated", "final_values",
+            "rewards", "agent_mask", "delivery", "own_pos", "terminated", "truncated",
+            "final_values",
             "global_state", "pursuer_pos", "step",
         }  # fmt: skip
         if set(fields) != required:
@@ -145,6 +148,7 @@ class RolloutBuffer:
                 returns=take(self.returns),
                 agent_mask=take(self.agent_mask),
                 delivery=take(self.delivery),
+                own_pos=take(self.own_pos),
                 global_state=take(self.global_state),
                 pursuer_pos=take(self.pursuer_pos),
                 step=take(self.step),

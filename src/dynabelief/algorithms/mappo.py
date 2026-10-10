@@ -176,8 +176,10 @@ class MAPPO:
         values normalized with the OLD stats. Targets use the updated stats.
         """
         length, batch, n_agents = mb.actions.shape
-        delivery = mb.delivery if self.policy.actor.comm is not None else None
-        logits = self.policy.actor.unroll(mb.obs, mb.actor_hidden0, mb.episode_start, delivery)
+        actor = self.policy.actor
+        delivery = mb.delivery if actor.comm is not None else None
+        own_pos = mb.own_pos if actor.use_own_position else None
+        logits = actor.unroll(mb.obs, mb.actor_hidden0, mb.episode_start, delivery, own_pos)
         dist = Categorical(logits=logits)
         raw_values = self.policy.critic(
             mb.global_state.flatten(0, 1), mb.pursuer_pos.flatten(0, 1), mb.step.flatten(0, 1)

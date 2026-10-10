@@ -199,6 +199,9 @@ class ModelConfig:
     hidden_dim: int = 128  # actor CNN output and GRU size
     conv_channels: int = 32
     critic_hidden_dim: int = 128
+    # Feed the agent's own normalized (x, y) to the actor (D31). Needed for beliefs in
+    # absolute grid coordinates (M4/M5); off keeps the M2/M3 architecture unchanged.
+    use_own_position: bool = False
 
     def validate(self) -> None:
         _require(self.hidden_dim >= 1, "model.hidden_dim must be >= 1")

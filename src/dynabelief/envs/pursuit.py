@@ -57,10 +57,14 @@ class ActorObs:
     Attributes:
         obs: ``[..., n_agents, obs_range, obs_range, 3]`` float32 local views.
         agent_mask: ``[..., n_agents]`` bool, True for agents that act this step.
+        own_pos: ``[..., n_agents, 2]`` float32, each agent's OWN position
+            ``(x / (X-1), y / (Y-1))`` in [0, 1] (a GPS-like self-localization sensor).
+            Used only by actors with ``model.use_own_position`` (decision D31).
     """
 
     obs: np.ndarray
     agent_mask: np.ndarray
+    own_pos: np.ndarray
 
 
 @dataclass(frozen=True)
@@ -215,7 +219,14 @@ class PursuitEnv:
             raise RuntimeError(f"observation shape {obs.shape[1:]} != declared {self.obs_shape}")
         if not np.isfinite(obs).all():
             raise RuntimeError("non-finite value in observation")
-        return ActorObs(obs=obs, agent_mask=np.ones(self.n_agents, dtype=bool))
+        layer = self._sim.pursuer_layer
+        pos = np.array([layer.get_position(i) for i in range(layer.n_agents())], dtype=np.float32)
+        scale = np.array([self.config.x_size - 1, self.config.y_size - 1], dtype=np.float32)
+        return ActorObs(
+            obs=obs,
+            agent_mask=np.ones(self.n_agents, dtype=bool),
+            own_pos=(pos.reshape(-1, 2) / scale).astype(np.float32),
+        )
 
     # Public API ---------------------------------------------------------
     def reset(self, seed: int) -> tuple[ActorObs, PrivilegedInfo]:
@@ -282,7 +293,9 @@ class PursuitEnv:
 
 def stack_actor(items: list[ActorObs]) -> ActorObs:
     return ActorObs(
-        obs=np.stack([x.obs for x in items]), agent_mask=np.stack([x.agent_mask for x in items])
+        obs=np.stack([x.obs for x in items]),
+        agent_mask=np.stack([x.agent_mask for x in items]),
+        own_pos=np.stack([x.own_pos for x in items]),
     )
 
 

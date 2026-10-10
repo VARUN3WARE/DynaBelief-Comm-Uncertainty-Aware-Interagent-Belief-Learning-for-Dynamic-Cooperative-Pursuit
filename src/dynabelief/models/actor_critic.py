@@ -41,10 +41,12 @@ class RecurrentActor(nn.Module):
         conv_channels: int = 32,
         comm_key_dim: int | None = None,
         comm_value_dim: int | None = None,
+        use_own_position: bool = False,
     ) -> None:
         super().__init__()
         self.hidden_dim = hidden_dim
         self.n_actions = n_actions
+        self.use_own_position = use_own_position
         self.encoder = LocalObsEncoder(obs_shape, conv_channels, hidden_dim)
         self.comm = (
             TarMACComm(hidden_dim, comm_key_dim, comm_value_dim)
@@ -52,6 +54,7 @@ class RecurrentActor(nn.Module):
             else None
         )
         gru_input = hidden_dim + (comm_value_dim if self.comm is not None else 0)
+        gru_input += 2 if use_own_position else 0
         self.gru = nn.GRUCell(gru_input, hidden_dim)
         self.last_attention: torch.Tensor | None = None  # diagnostics of the latest step
         self.policy_head = init_layer(nn.Linear(hidden_dim, n_actions), gain=0.01)
@@ -70,6 +73,7 @@ class RecurrentActor(nn.Module):
         hidden: torch.Tensor,
         start: torch.Tensor,
         delivery: torch.Tensor | None,
+        own_pos: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """One GRU step; ``start`` [B] bool zeroes the hidden state of new episodes.
 
@@ -84,7 +88,11 @@ class RecurrentActor(nn.Module):
             delivery = delivery & ~start[:, None, None]
             context, self.last_attention = self.comm(hidden, delivery)
             features = torch.cat([features, context], dim=-1)
-            dim = features.shape[-1]
+        if self.use_own_position:
+            if own_pos is None:
+                raise ValueError("this actor uses its own position: pass own_pos")
+            features = torch.cat([features, own_pos.to(features.dtype)], dim=-1)
+        dim = features.shape[-1]
         new = self.gru(features.reshape(-1, dim), hidden.reshape(-1, self.hidden_dim))
         return new.reshape(batch, n_agents, self.hidden_dim)
 
@@ -94,9 +102,10 @@ class RecurrentActor(nn.Module):
         hidden: torch.Tensor,
         episode_start: torch.Tensor,
         delivery: torch.Tensor | None = None,
+        own_pos: torch.Tensor | None = None,
     ):
         """Single step. Returns ``(logits [B, N, A], new_hidden [B, N, H])``."""
-        new_hidden = self._recur(self.encoder(obs), hidden, episode_start, delivery)
+        new_hidden = self._recur(self.encoder(obs), hidden, episode_start, delivery, own_pos)
         return self.policy_head(new_hidden), new_hidden
 
     def unroll(
@@ -105,9 +114,12 @@ class RecurrentActor(nn.Module):
         hidden0: torch.Tensor,
         episode_start: torch.Tensor,
         delivery: torch.Tensor | None = None,
+        own_pos: torch.Tensor | None = None,
+        return_hidden: bool = False,
     ):
         """Sequence ``obs [L, B, N, ...]``, ``episode_start [L, B]``, ``delivery
-        [L, B, N, N]`` -> logits ``[L, B, N, A]``.
+        [L, B, N, N]``, ``own_pos [L, B, N, 2]`` -> logits ``[L, B, N, A]`` (and the
+        hidden states ``[L, B, N, H]`` with ``return_hidden``, e.g. for belief heads).
 
         Identical to calling ``step`` L times; the CNN runs once over all steps. Because
         messages come from the previous hidden state, gradients flow across agents and
@@ -117,9 +129,12 @@ class RecurrentActor(nn.Module):
         hidden, outputs = hidden0, []
         for t in range(obs.shape[0]):
             step_delivery = None if delivery is None else delivery[t]
-            hidden = self._recur(features[t], hidden, episode_start[t], step_delivery)
+            step_pos = None if own_pos is None else own_pos[t]
+            hidden = self._recur(features[t], hidden, episode_start[t], step_delivery, step_pos)
             outputs.append(hidden)
-        return self.policy_head(torch.stack(outputs))
+        hiddens = torch.stack(outputs)
+        logits = self.policy_head(hiddens)
+        return (logits, hiddens) if return_hidden else logits
 
 
 class CentralCritic(nn.Module):
@@ -180,11 +195,13 @@ class MAPPOPolicy(nn.Module):
         critic_hidden_dim: int = 128,
         comm_key_dim: int | None = None,
         comm_value_dim: int | None = None,
+        use_own_position: bool = False,
     ) -> None:
         super().__init__()
         self.actor = RecurrentActor(
-            obs_shape, n_actions, hidden_dim, conv_channels, comm_key_dim, comm_value_dim
-        )
+            obs_shape, n_actions, hidden_dim, conv_channels, comm_key_dim, comm_value_dim,
+            use_own_position,
+        )  # fmt: skip
         self.critic = CentralCritic(state_shape, max_cycles, critic_hidden_dim, conv_channels)
 
     @torch.no_grad()
@@ -196,9 +213,10 @@ class MAPPOPolicy(nn.Module):
         deterministic: bool = False,
         *,
         delivery: torch.Tensor | None = None,
+        own_pos: torch.Tensor | None = None,
     ):
         """Returns ``(actions [B, N], log_probs [B, N], new_hidden [B, N, H])``."""
-        logits, new_hidden = self.actor.step(obs, hidden, episode_start, delivery)
+        logits, new_hidden = self.actor.step(obs, hidden, episode_start, delivery, own_pos)
         dist = Categorical(logits=logits)
         actions = logits.argmax(-1) if deterministic else dist.sample()
         return actions, dist.log_prob(actions), new_hidden

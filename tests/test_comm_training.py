@@ -130,3 +130,21 @@ def test_eval_agent_requires_delivery_for_communicating_policy(tmp_path):
     with pytest.raises(ValueError, match="delivery"):
         agent.act(actor)
     assert agent.act(actor, np.zeros((8, 8), dtype=bool)).shape == (8,)
+
+
+def test_own_position_input_is_used_and_replayed_exactly():
+    raw = tarmac(rollout_length=16).to_dict()
+    raw["model"]["use_own_position"] = True
+    config = config_from_dict(raw)
+    trainer = collect_once(config)
+    buf, actor = trainer.buffer, trainer.policy.actor
+    assert actor.use_own_position and (buf.own_pos > 0).any()
+    for mb in buf.minibatches(2, 4, torch.Generator().manual_seed(0), buf.advantages):
+        logits = actor.unroll(mb.obs, mb.actor_hidden0, mb.episode_start, mb.delivery, mb.own_pos)
+        torch.testing.assert_close(Categorical(logits=logits).log_prob(mb.actions),
+                                   mb.old_log_probs, rtol=1e-5, atol=1e-5)  # fmt: skip
+        moved = actor.unroll(mb.obs, mb.actor_hidden0, mb.episode_start, mb.delivery,
+                             1.0 - mb.own_pos)  # fmt: skip
+        assert not torch.allclose(moved, logits)  # the position really is an input
+    with pytest.raises(ValueError, match="own_pos"):
+        actor.step(buf.obs[0], buf.actor_hidden[0], buf.episode_start[0], buf.delivery[0])

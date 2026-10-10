@@ -17,7 +17,7 @@ from dynabelief.envs.vector import PursuitVecEnv
 from dynabelief.policies.random_policy import RandomPolicy
 from tests.helpers import bfs_action
 
-ACTOR_FIELDS = {"obs", "agent_mask"}
+ACTOR_FIELDS = {"obs", "agent_mask", "own_pos"}
 
 
 def expected_local_view(global_state: np.ndarray, x: int, y: int, obs_range: int) -> np.ndarray:
@@ -141,3 +141,12 @@ def test_policy_interface_accepts_only_actor_obs():
     params = list(inspect.signature(RandomPolicy.act).parameters.values())[1:]
     assert len(params) == 1
     assert params[0].annotation in (ActorObs, "ActorObs")
+
+
+def test_own_position_is_only_the_agents_own_cell():
+    env = PursuitEnv(EnvConfig(x_size=12, y_size=10, n_pursuers=4, n_evaders=5))
+    actor, priv = env.reset(3)
+    expected = priv.pursuer_pos / np.array([11.0, 9.0])
+    np.testing.assert_allclose(actor.own_pos, expected, rtol=0, atol=1e-6)
+    assert actor.own_pos.dtype == np.float32 and actor.own_pos.shape == (4, 2)
+    assert (actor.own_pos >= 0).all() and (actor.own_pos <= 1).all()

@@ -72,8 +72,11 @@ class MAPPOAgent:
             if delivery is None:
                 raise ValueError("communicating policy evaluated without a delivery mask")
             mask = torch.as_tensor(delivery, dtype=torch.bool, device=self.device).unsqueeze(0)
+        own_pos = None
+        if self.policy.actor.use_own_position:
+            own_pos = torch.as_tensor(actor.own_pos, device=self.device).unsqueeze(0)
         actions, _, self.hidden = self.policy.act(
-            obs, self.hidden, start, self.deterministic, delivery=mask
+            obs, self.hidden, start, self.deterministic, delivery=mask, own_pos=own_pos
         )
         self.start = False
         return np.where(actor.agent_mask, actions[0].cpu().numpy(), 0)

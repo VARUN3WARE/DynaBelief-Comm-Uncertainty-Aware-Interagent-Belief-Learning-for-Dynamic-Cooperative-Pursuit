@@ -47,6 +47,7 @@ def build_policy(config: Config, obs_shape, state_shape, n_actions: int) -> MAPP
         critic_hidden_dim=m.critic_hidden_dim,
         comm_key_dim=config.comm.key_dim if config.comm.enabled else None,
         comm_value_dim=config.comm.message_dim if config.comm.enabled else None,
+        use_own_position=m.use_own_position,
     )
 
 
@@ -156,8 +157,10 @@ class MAPPOTrainer:
         completed: list[dict[str, Any]] = []
         entropy_sum, entropy_n = 0.0, 0
         n = self.vec.n_agents
+        uses_pos = self.policy.actor.use_own_position
         for _ in range(buf.T):
             obs = self._t(actor.obs, torch.float32)
+            own_pos = self._t(actor.own_pos, torch.float32)
             if self.channel is not None:
                 # Messages readable now were sent at t-1; none exist at an episode start.
                 alive = actor.agent_mask & ~start.cpu().numpy()[:, None]
@@ -167,7 +170,11 @@ class MAPPOTrainer:
                                        device=self.device)  # fmt: skip
             # Actor sees only its local views, its own recurrent state and delivered messages.
             actions, log_probs, new_hidden = self.policy.act(
-                obs, hidden, start, delivery=delivery if self.channel is not None else None
+                obs,
+                hidden,
+                start,
+                delivery=delivery if self.channel is not None else None,
+                own_pos=own_pos if uses_pos else None,
             )
             if self.channel is not None and delivery.any():
                 attention = self.policy.actor.last_attention
@@ -192,6 +199,7 @@ class MAPPOTrainer:
                 rewards=self._t(result.rewards, torch.float32),
                 agent_mask=self._t(actor.agent_mask, torch.bool),
                 delivery=delivery,
+                own_pos=own_pos,
                 terminated=self._t(result.terminated, torch.bool),
                 truncated=self._t(result.truncated, torch.bool),
                 final_values=final_values,
