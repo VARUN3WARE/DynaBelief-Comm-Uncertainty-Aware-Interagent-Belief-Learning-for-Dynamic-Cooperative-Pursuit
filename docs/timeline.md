@@ -22,3 +22,13 @@ What happened, in order, with the commit and the key number. Decisions are in
 | `6cf6daa` | Training moved to SageMaker (D22, D23) | `cloud/launch.py`, `cloud/sagemaker_entry.py`; GPU instances because CPU updates are ~10× slower |
 | `428376d` `d46390a` | Cloud smoke jobs | Two launch bugs found and fixed (hyperparameter types, empty overrides). Third smoke job **completed** on a Tesla T4; commit, metrics, evals and curves synced to S3 |
 | `d46390a` | **M2 baseline on SageMaker** (`dynabelief-no-comm-s0-20261007-173719`, `ml.g4dn.8xlarge`, 16 workers) | 5M steps in 1.5 h ($4.6). Held-out capture rate **0.537 / 0.553** (sampled / greedy) vs 0.029 random; plateau from ~1M steps, as on the PC ([result](results/m2_baseline.md)). **M2 complete** |
+
+## 2026-10-10
+
+| Commit | Step | Outcome |
+|---|---|---|
+| `abaf135` | **M3.1** TarMAC module in the actor | Undelivered messages: no effect, no gradient; receiver loss reaches sender's encoder; no phantom messages at episode starts |
+| `8fada31` | **M3.2** comm through trainer, buffer, checkpoints, eval | Recomputed log-probs equal stored ones **with** messages and differ without them, so comm is really used; channel RNG saved on resume |
+| `8ce5b58` | **M3.3** configs + cloud eval sweep + AWS test jobs | `tarmac.yaml` = `no_comm.yaml` + comm; full suite on AWS: **209 passed** (ml.c5.2xlarge, 2.6 min) |
+| `8035b23` | Cloud fix | Toolkit passes hyperparameters unquoted to a shell: `;` in the loss sweep ran as commands. Now base64/comma encoded; smoke job on AWS completed with all 5 evals |
+| `8035b23` | **M3 TarMAC run** (`dynabelief-tarmac-s0-20261010-163342`, `ml.g4dn.8xlarge`) | Running: 5M steps, evaluated at 0 / 10 / 20 / 30 % packet loss |
