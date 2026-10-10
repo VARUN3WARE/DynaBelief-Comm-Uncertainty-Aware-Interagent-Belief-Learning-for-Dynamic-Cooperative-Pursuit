@@ -15,7 +15,6 @@ Launched by ``cloud/launch.py``; never run this locally. Steps:
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import shutil
 import subprocess
@@ -56,22 +55,49 @@ def newest_final(runs_dir: Path) -> Path:
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", required=True)
-    # nargs="?": the toolkit passes a bare "--overrides" when the value is empty.
+    parser.add_argument("--mode", choices=("train", "tests"), default="train")
+    parser.add_argument("--config", help="repo-relative config (train mode)")
+    # nargs="?": the toolkit passes a bare flag when a value is empty.
     parser.add_argument("--overrides", nargs="?", const="", default="",
                         help="';'-separated section.key=value")  # fmt: skip
     parser.add_argument("--eval_episodes", type=int, default=50)
+    parser.add_argument("--eval_packet_loss", nargs="?", const="", default="",
+                        help="';'-separated loss sweep for sampled evals")  # fmt: skip
     parser.add_argument("--workers", type=int, default=0, help="0 = derive from vCPUs")
     parser.add_argument("--torch_threads", type=int, default=2)
     parser.add_argument("--skip_install", action="store_true", help="local testing only")
     args, unknown = parser.parse_known_args(argv)
     if unknown:
         print(f"ignoring unknown args {unknown}", flush=True)
+    if args.mode == "train" and not args.config:
+        parser.error("--config is required in train mode")
     return args
+
+
+def eval_plan(comm_enabled: bool, train_loss: float, sweep: str) -> list[tuple[str, list[str]]]:
+    """(label, extra evaluate.py args): sampled actions at every swept packet loss (or at
+    the training loss) plus greedy actions at the training loss."""
+    losses = [float(x) for x in sweep.split(";") if x.strip()] if comm_enabled else []
+    plan = [(f"sampled_loss{loss:g}", ["--packet-loss", str(loss)]) for loss in losses]
+    if not plan:
+        plan = [("sampled", [])]
+    plan.append(("greedy", ["--deterministic", "--packet-loss", str(train_loss)]))
+    return plan
+
+
+def run_tests() -> int:
+    run([sys.executable, "-m", "pip", "install", "--no-cache-dir", "--quiet", ".[dev]"])
+    MODEL.mkdir(parents=True, exist_ok=True)
+    run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider",
+         f"--junitxml={MODEL / 'pytest.xml'}"])  # fmt: skip
+    print("done", flush=True)
+    return 0
 
 
 def main() -> int:
     args = parse_args()
+    if args.mode == "tests":
+        return run_tests()
     if not args.skip_install:
         run([sys.executable, "-m", "pip", "install", "--no-cache-dir", "--quiet", "."])
     from dynabelief.config import load_config, parse_override
@@ -95,20 +121,29 @@ def main() -> int:
 
     final = newest_final(runs_dir)
     run_dir = final.parents[1]
+    plan = []
     if args.eval_episodes > 0:
-        for extra in ([], ["--deterministic"]):
-            run([sys.executable, "scripts/evaluate.py", "--checkpoint", str(final),
-                 "--episodes", str(args.eval_episodes), "--output-dir", str(evals_dir),
-                 *extra])  # fmt: skip
+        plan = eval_plan(config.comm.enabled, config.comm.packet_loss, args.eval_packet_loss)
+        # Each evaluation is a single-process episode loop: run them all concurrently.
+        procs = []
+        for label, extra in plan:
+            eval_cmd = [sys.executable, "scripts/evaluate.py", "--checkpoint", str(final),
+                        "--episodes", str(args.eval_episodes),
+                        "--output-dir", str(evals_dir / label), *extra]  # fmt: skip
+            print("+", " ".join(eval_cmd), flush=True)
+            procs.append(subprocess.Popen(eval_cmd, cwd=CODE))
+        failed = [label for (label, _), p in zip(plan, procs, strict=True) if p.wait() != 0]
+        if failed:
+            raise SystemExit(f"evaluations failed: {failed}")
     run([sys.executable, "scripts/plot_metrics.py", str(run_dir)])
 
     MODEL.mkdir(parents=True, exist_ok=True)
     for name in ("config.yaml", "metadata.yaml", "summary.json", "curves.png"):
         if (run_dir / name).exists():
             shutil.copy2(run_dir / name, MODEL / name)
-    for summary in evals_dir.glob("*/summary.json"):
-        mode = "greedy" if json.loads(summary.read_text()).get("deterministic") else "sampled"
-        shutil.copy2(summary, MODEL / f"eval_{mode}.json")
+    for label, _ in plan:
+        for summary in (evals_dir / label).glob("*/summary.json"):
+            shutil.copy2(summary, MODEL / f"eval_{label}.json")
     shutil.copy2(final, MODEL / "final.pt")
     print("done", flush=True)
     return 0

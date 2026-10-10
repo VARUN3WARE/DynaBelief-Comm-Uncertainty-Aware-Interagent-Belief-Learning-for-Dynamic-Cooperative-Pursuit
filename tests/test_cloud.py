@@ -111,3 +111,36 @@ def test_empty_overrides_are_omitted_and_bare_flag_parses():
     assert args.overrides == "" and args.eval_episodes == 2
     args = entry.parse_args(["--config", "c.yaml", "--overrides", "a.b=1;c.d=2"])
     assert args.overrides == "a.b=1;c.d=2"
+
+
+def test_eval_plan_sweeps_packet_loss_only_with_comm():
+    plan = entry.eval_plan(True, 0.0, "0;0.1;0.2;0.3")
+    assert [label for label, _ in plan] == [
+        "sampled_loss0",
+        "sampled_loss0.1",
+        "sampled_loss0.2",
+        "sampled_loss0.3",
+        "greedy",
+    ]
+    assert plan[2][1] == ["--packet-loss", "0.2"]
+    assert plan[-1][1] == ["--deterministic", "--packet-loss", "0.0"]
+    no_comm = entry.eval_plan(False, 0.0, "0;0.1")
+    assert [label for label, _ in no_comm] == ["sampled", "greedy"]
+    assert [label for label, _ in entry.eval_plan(True, 0.2, "")] == ["sampled", "greedy"]
+
+
+def test_request_carries_mode_and_sweep():
+    hyper = {
+        k: json.loads(v)
+        for k, v in request(eval_packet_loss=[0.0, 0.25])["HyperParameters"].items()
+    }
+    assert hyper["mode"] == "train" and hyper["eval_packet_loss"] == "0;0.25"
+    tests_req = request(mode="tests", config="", overrides=[], eval_episodes=0)
+    tests_hyper = {k: json.loads(v) for k, v in tests_req["HyperParameters"].items()}
+    assert tests_hyper["mode"] == "tests" and "config" not in tests_hyper
+
+
+def test_tests_mode_needs_no_config_but_train_does():
+    assert entry.parse_args(["--mode", "tests"]).mode == "tests"
+    with pytest.raises(SystemExit):
+        entry.parse_args(["--mode", "train"])

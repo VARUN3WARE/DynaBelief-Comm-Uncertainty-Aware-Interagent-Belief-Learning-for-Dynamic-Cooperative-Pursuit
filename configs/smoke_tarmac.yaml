@@ -1,0 +1,33 @@
+# M3 smoke training: the TarMAC path (messages, lossy channel, comm metrics) in ~1 minute.
+experiment:
+  name: smoke_tarmac
+  seed: 0
+  device: auto
+  output_dir: runs
+
+env:
+  max_cycles: 50
+
+comm:
+  enabled: true
+  key_dim: 8
+  message_dim: 8
+  packet_loss: 0.2
+
+train:
+  policy: mappo
+  num_envs: 4
+  num_workers: 2
+  rollout_length: 32
+  total_env_steps: 1024
+  checkpoint_every_updates: 4
+
+model:
+  hidden_dim: 64
+  conv_channels: 16
+  critic_hidden_dim: 64
+
+ppo:
+  epochs: 2
+  num_minibatches: 2
+  chunk_length: 16

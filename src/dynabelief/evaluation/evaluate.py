@@ -135,7 +135,20 @@ def evaluate(
         env.close()
         if writer:
             writer.close()
-    return summarize_episodes(records)
+    summary = summarize_episodes(records)
+    if config.comm.enabled and records:
+        sent = sum(r["messages_sent"] for r in records)
+        delivered = sum(r["messages_delivered"] for r in records)
+        steps = sum(r["length"] for r in records)
+        summary.update(
+            packet_loss=config.comm.packet_loss,
+            messages_delivered_per_step=delivered / steps,
+            drop_rate=1.0 - delivered / sent if sent else 0.0,
+            bytes_per_capture=(
+                sum(r["bytes_sent"] for r in records) / max(1, sum(r["captures"] for r in records))
+            ),
+        )
+    return summary
 
 
 def evaluate_random(config: Config, episodes: int, run_dir: Path | None = None) -> dict[str, Any]:

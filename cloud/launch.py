@@ -63,6 +63,8 @@ def training_job_request(
     spot: bool,
     max_hours: float,
     eval_episodes: int,
+    eval_packet_loss: list[float] | None = None,
+    mode: str = "train",
 ) -> dict:
     """``create_training_job`` arguments for script mode in the PyTorch DLC."""
     hyper = {
@@ -70,9 +72,11 @@ def training_job_request(
         "sagemaker_submit_directory": source_uri,
         "sagemaker_region": region,
         "sagemaker_container_log_level": 20,  # must decode to an int (logging level)
+        "mode": mode,
         "config": config,
         "overrides": ";".join(overrides),
         "eval_episodes": eval_episodes,
+        "eval_packet_loss": ";".join(f"{x:g}" for x in eval_packet_loss or []),
     }
     max_seconds = int(max_hours * 3600)
     request = {
@@ -165,7 +169,7 @@ def cmd_train(args: argparse.Namespace) -> int:
         name=name, region=region, role_arn=args.role or role, bucket=bucket,
         source_uri=source, commit=commit, config=args.config, overrides=overrides,
         instance_type=args.instance, spot=args.spot, max_hours=args.max_hours,
-        eval_episodes=args.eval_episodes,
+        eval_episodes=args.eval_episodes, eval_packet_loss=args.eval_packet_loss,
     )  # fmt: skip
     if args.dry_run:
         print(json.dumps(request, indent=2))
@@ -175,6 +179,24 @@ def cmd_train(args: argparse.Namespace) -> int:
     print(f"  live S3  {request['CheckpointConfig']['S3Uri']}")
     print(f"  console  https://{region}.console.aws.amazon.com/sagemaker/home?region={region}"
           f"#/jobs/{name}")  # fmt: skip
+    return 0
+
+
+def cmd_test(args: argparse.Namespace) -> int:
+    """Run the full pytest suite (including slow tests) in a SageMaker job."""
+    commit = clean_commit()
+    sess = session()
+    region, bucket, role = defaults(sess)
+    name = f"{PREFIX}-tests-{commit[:8]}-{datetime.now(UTC):%Y%m%d-%H%M%S}"
+    source = upload_source(sess, bucket, commit)
+    request = training_job_request(
+        name=name, region=region, role_arn=args.role or role, bucket=bucket,
+        source_uri=source, commit=commit, config="", overrides=[],
+        instance_type=args.instance, spot=False, max_hours=1.0, eval_episodes=0, mode="tests",
+    )  # fmt: skip
+    sess.client("sagemaker").create_training_job(**request)
+    print(f"launched {name} (pytest, all tests) on {args.instance}; follow with:")
+    print(f"  python cloud/launch.py logs {name} --follow")
     return 0
 
 
@@ -268,10 +290,17 @@ def main(argv: list[str] | None = None) -> int:
     train.add_argument("--spot", action="store_true", help="managed spot (cheaper; may resume)")
     train.add_argument("--max-hours", type=float, default=6.0)
     train.add_argument("--eval-episodes", type=int, default=50)
+    train.add_argument("--eval-packet-loss", type=float, nargs="*", default=[0.0, 0.1, 0.2, 0.3],
+                       help="packet-loss sweep for sampled evals (comm configs only)")  # fmt: skip
     train.add_argument("--name", help="job name (default: dynabelief-<config>-s<seed>-<utc>)")
     train.add_argument("--role", help="execution role ARN (default: the SageMaker exec role)")
     train.add_argument("--dry-run", action="store_true", help="print the request only")
     train.set_defaults(func=cmd_train)
+
+    test = sub.add_parser("test", help="run the full test suite on a SageMaker CPU instance")
+    test.add_argument("--instance", default="ml.c5.2xlarge")
+    test.add_argument("--role", help="execution role ARN")
+    test.set_defaults(func=cmd_test)
 
     status = sub.add_parser("status", help="list recent dynabelief jobs")
     status.add_argument("-n", type=int, default=10)
