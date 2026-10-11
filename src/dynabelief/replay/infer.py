@@ -38,6 +38,8 @@ class ReplayBatch:
     agent_mask: torch.Tensor
     belief_target: torch.Tensor
     belief_valid: torch.Tensor
+    occupancy: torch.Tensor  # [T_r, B, Y, X] map label (TRAINING-ONLY)
+    free: torch.Tensor  # [T_r, B, Y, X]
     hidden0: torch.Tensor  # [B, N, H]
     delivery: torch.Tensor  # [T_r, B, N, N] full delivery among alive agents
 
@@ -51,6 +53,7 @@ class EventReplayBuffer:
         obs_shape: tuple[int, ...],
         hidden_dim: int,
         generator: torch.Generator,
+        grid_yx: tuple[int, int] = (16, 16),
     ) -> None:
         if capacity < 1 or window < 1:
             raise ValueError("capacity and window must be >= 1")
@@ -63,6 +66,8 @@ class EventReplayBuffer:
         self.agent_mask = torch.zeros(capacity, W, N, dtype=torch.bool)
         self.belief_target = torch.zeros(capacity, W, N, 2)
         self.belief_valid = torch.zeros(capacity, W, N, dtype=torch.bool)
+        self.occupancy = torch.zeros(capacity, W, *grid_yx, dtype=torch.uint8)
+        self.free = torch.zeros(capacity, W, *grid_yx, dtype=torch.bool)
         self.hidden0 = torch.zeros(capacity, N, hidden_dim)
         self.size = 0
         self.next = 0
@@ -96,6 +101,9 @@ class EventReplayBuffer:
             self.agent_mask[i] = rollout.agent_mask[t : t + W, e].cpu()
             self.belief_target[i] = rollout.belief_target[t : t + W, e].cpu()
             self.belief_valid[i] = rollout.belief_valid[t : t + W, e].cpu()
+            state = rollout.global_state[t : t + W, e].cpu()
+            self.occupancy[i] = (state[:, 2] > 0).to(torch.uint8)
+            self.free[i] = state[:, 0] == 0
             self.hidden0[i] = rollout.actor_hidden[t, e].cpu()
             self.next = (i + 1) % self.capacity
             self.size = min(self.size + 1, self.capacity)
@@ -123,6 +131,8 @@ class EventReplayBuffer:
             agent_mask=mask,
             belief_target=take(self.belief_target),
             belief_valid=take(self.belief_valid),
+            occupancy=take(self.occupancy).float(),
+            free=take(self.free),
             hidden0=take(self.hidden0, time_major=False),
             delivery=delivery,
         )

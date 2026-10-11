@@ -250,13 +250,14 @@ class PPOConfig:
         _require(self.target_kl >= 0.0, "ppo.target_kl must be >= 0")
 
 
-BELIEF_TYPES = ("none", "point")
+BELIEF_TYPES = ("none", "point", "map")
 
 
 @dataclass(frozen=True)
 class BeliefConfig:
-    """Interagent belief learning (DIABL family). ``point`` (M4): each agent regresses the
-    absolute position of the nearest team-visible evader from its post-message state."""
+    """Interagent belief learning (DIABL family) from each agent's post-message state.
+    ``point`` (M4): regress the absolute position of the nearest team-visible evader.
+    ``map`` (M5, D-DIABL): per-cell evader-occupancy probabilities (BCE)."""
 
     type: str = "none"
     coef: float = 1.0  # weight of the belief loss in the actor loss

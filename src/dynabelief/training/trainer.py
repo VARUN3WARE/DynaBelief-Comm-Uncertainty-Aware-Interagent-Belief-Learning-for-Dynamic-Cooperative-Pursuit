@@ -37,6 +37,16 @@ from dynabelief.utils.logging import JsonlWriter, get_logger, resource_usage
 from dynabelief.utils.seeding import derive_seed, make_rng, seed_everything
 
 
+def map_prior_logit(config: Config) -> float:
+    """Expected occupancy of a free cell at an episode start (map-belief bias init)."""
+    from pettingzoo.sisl.pursuit.utils.two_d_maps import rectangle_map
+
+    from dynabelief.beliefs.maps import prior_logit
+
+    free = int((rectangle_map(config.env.x_size, config.env.y_size) != -1).sum())
+    return prior_logit(config.env.n_evaders, free)
+
+
 def build_policy(config: Config, obs_shape, state_shape, n_actions: int) -> MAPPOPolicy:
     m = config.model
     return MAPPOPolicy(
@@ -51,6 +61,7 @@ def build_policy(config: Config, obs_shape, state_shape, n_actions: int) -> MAPP
         comm_value_dim=config.comm.message_dim if config.comm.enabled else None,
         use_own_position=m.use_own_position,
         belief_type=config.belief.type,
+        belief_prior_logit=map_prior_logit(config) if config.belief.type == "map" else 0.0,
     )
 
 
@@ -105,6 +116,7 @@ class MAPPOTrainer:
                     self.vec.obs_shape,
                     config.model.hidden_dim,
                     torch.Generator().manual_seed(derive_seed(seed, "replay")),
+                    grid_yx=(config.env.y_size, config.env.x_size),
                 )
                 if config.replay.type != "none"
                 else None

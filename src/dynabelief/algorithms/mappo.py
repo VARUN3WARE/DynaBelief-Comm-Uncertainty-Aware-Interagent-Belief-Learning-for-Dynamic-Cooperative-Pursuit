@@ -20,6 +20,7 @@ import torch.nn.functional as F
 from torch.distributions import Categorical
 
 from dynabelief.algorithms.gae import build_next_values, compute_gae
+from dynabelief.beliefs.losses import belief_loss
 from dynabelief.config import PPOConfig
 from dynabelief.models.actor_critic import MAPPOPolicy
 from dynabelief.training.buffer import Minibatch, RolloutBuffer
@@ -33,9 +34,8 @@ class LossTerms:
     entropy: torch.Tensor
     approx_kl: torch.Tensor
     clip_fraction: torch.Tensor
-    belief_loss: torch.Tensor | None = None  # mean squared error of normalized (x, y)
-    belief_error: torch.Tensor | None = None  # mean Euclidean error, normalized units
-    belief_valid_fraction: torch.Tensor | None = None
+    belief_loss: torch.Tensor | None = None  # point: squared error; map: BCE per free cell
+    belief_metrics: dict | None = None  # detached diagnostics of the belief head
 
 
 def masked_mean(x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
@@ -225,12 +225,9 @@ class MAPPO:
             huber_delta=cfg.huber_delta,
         )
         if actor.belief_head is not None:
-            valid = mb.belief_valid & mb.agent_mask
-            squared = (actor.belief_head(hiddens) - mb.belief_target).pow(2).sum(-1)
-            terms.belief_loss = masked_mean(squared, valid)
-            with torch.no_grad():
-                terms.belief_error = masked_mean(squared.sqrt(), valid)
-                terms.belief_valid_fraction = masked_mean(valid.float(), mb.agent_mask)
+            terms.belief_loss, terms.belief_metrics = belief_loss(
+                actor, hiddens, mb, self.grid_scale
+            )
         return terms
 
     def _sender_grad_norm(self, belief_loss: torch.Tensor) -> float:
@@ -255,8 +252,7 @@ class MAPPO:
             batch.own_pos if actor.use_own_position else None,
             return_hidden=True,
         )
-        squared = (actor.belief_head(hiddens) - batch.belief_target).pow(2).sum(-1)
-        loss = masked_mean(squared, batch.belief_valid & batch.agent_mask)
+        loss, _ = belief_loss(actor, hiddens, batch, self.grid_scale)
         if not torch.isfinite(loss):
             raise RuntimeError(f"non-finite replay belief loss {loss.item()}")
         self.replay_optimizer.zero_grad(set_to_none=True)
@@ -302,8 +298,7 @@ class MAPPO:
                     belief_record = {
                         "belief_loss": terms.belief_loss.item(),
                         "weighted_belief_loss": self.belief_coef * terms.belief_loss.item(),
-                        "belief_error_cells": terms.belief_error.item() * self.grid_scale,
-                        "belief_valid_fraction": terms.belief_valid_fraction.item(),
+                        **{k: float(v) for k, v in terms.belief_metrics.items()},
                     }
                     if n_steps == 0 and self.policy.actor.comm is not None:
                         belief_record["belief_sender_grad_norm"] = self._sender_grad_norm(

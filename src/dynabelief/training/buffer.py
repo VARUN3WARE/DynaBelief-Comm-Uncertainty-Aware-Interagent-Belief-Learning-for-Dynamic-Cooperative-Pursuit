@@ -40,6 +40,16 @@ class Minibatch:
     pursuer_pos: torch.Tensor  # [L, B, N, 2]
     step: torch.Tensor  # [L, B]
 
+    @property
+    def occupancy(self) -> torch.Tensor:
+        """TRAINING-ONLY map label ``[L, B, Y, X]``: 1 where >= 1 evader stands."""
+        return (self.global_state[:, :, 2] > 0).float()
+
+    @property
+    def free(self) -> torch.Tensor:
+        """``[L, B, Y, X]`` cells that can hold an evader (not obstacles)."""
+        return self.global_state[:, :, 0] == 0
+
 
 class RolloutBuffer:
     def __init__(

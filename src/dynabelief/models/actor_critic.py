@@ -21,6 +21,7 @@ import torch
 from torch import nn
 from torch.distributions import Categorical
 
+from dynabelief.models.belief import MapBeliefHead, PointBeliefHead
 from dynabelief.models.comm import TarMACComm
 from dynabelief.models.encoder import GlobalStateEncoder, LocalObsEncoder, init_layer
 
@@ -43,23 +44,24 @@ class RecurrentActor(nn.Module):
         comm_value_dim: int | None = None,
         use_own_position: bool = False,
         belief_type: str = "none",
+        grid_yx: tuple[int, int] | None = None,
+        belief_prior_logit: float = 0.0,
     ) -> None:
         super().__init__()
         self.hidden_dim = hidden_dim
         self.n_actions = n_actions
         self.use_own_position = use_own_position
-        # Point belief (DIABL): normalized (x, y) of the nearest team-visible evader,
-        # read from the post-message hidden state so its loss trains the senders too.
-        self.belief_head = (
-            nn.Sequential(
-                init_layer(nn.Linear(hidden_dim, hidden_dim)),
-                nn.ReLU(),
-                init_layer(nn.Linear(hidden_dim, 2), gain=0.1),
-                nn.Sigmoid(),
-            )
-            if belief_type == "point"
-            else None
-        )
+        self.belief_type = belief_type
+        # Belief head (DIABL family) on the post-message hidden state, so its loss trains
+        # the senders through the channel: point (M4) or occupancy map (M5).
+        if belief_type == "point":
+            self.belief_head: nn.Module | None = PointBeliefHead(hidden_dim)
+        elif belief_type == "map":
+            if grid_yx is None:
+                raise ValueError("a map belief needs grid_yx")
+            self.belief_head = MapBeliefHead(hidden_dim, grid_yx, belief_prior_logit)
+        else:
+            self.belief_head = None
         self.encoder = LocalObsEncoder(obs_shape, conv_channels, hidden_dim)
         self.comm = (
             TarMACComm(hidden_dim, comm_key_dim, comm_value_dim)
@@ -210,11 +212,12 @@ class MAPPOPolicy(nn.Module):
         comm_value_dim: int | None = None,
         use_own_position: bool = False,
         belief_type: str = "none",
+        belief_prior_logit: float = 0.0,
     ) -> None:
         super().__init__()
         self.actor = RecurrentActor(
             obs_shape, n_actions, hidden_dim, conv_channels, comm_key_dim, comm_value_dim,
-            use_own_position, belief_type,
+            use_own_position, belief_type, tuple(state_shape[1:]), belief_prior_logit,
         )  # fmt: skip
         self.critic = CentralCritic(state_shape, max_cycles, critic_hidden_dim, conv_channels)
 
