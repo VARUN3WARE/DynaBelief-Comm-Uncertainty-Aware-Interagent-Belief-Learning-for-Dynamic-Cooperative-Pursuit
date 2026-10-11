@@ -132,7 +132,7 @@ def run_evaluate_only(args: argparse.Namespace) -> int:
     plan = eval_plan(config.comm.enabled, config.comm.packet_loss, args.eval_packet_loss)
     run_evaluations(final, plan, args.eval_episodes, evals_dir)
     export_evals(plan, evals_dir)
-    if config.belief.type == "point":
+    if config.belief.type != "none":
         for loss in ("0", "0.3"):
             out = CHECKPOINTS / f"beliefs_loss{loss}.png"
             run([sys.executable, "scripts/plot_beliefs.py", "--checkpoint", str(final),
@@ -192,7 +192,7 @@ def main() -> int:
         if (run_dir / name).exists():
             shutil.copy2(run_dir / name, MODEL / name)
     export_evals(plan, evals_dir)
-    if config.belief.type == "point":
+    if config.belief.type != "none":
         out = run_dir / "beliefs.png"
         run([sys.executable, "scripts/plot_beliefs.py", "--checkpoint", str(final),
              "--output", str(out)])  # fmt: skip

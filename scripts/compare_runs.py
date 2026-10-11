@@ -63,9 +63,26 @@ def eval_label_for_loss(evals: dict, loss: float) -> str | None:
     return None
 
 
+def belief_cell(point_errors: list, map_records: list) -> str:
+    """Point beliefs: mean error in cells. Map beliefs: BCE (nats/cell) vs the prior map."""
+    if map_records:
+        model = np.mean([r["map_bce_model"] for r in map_records])
+        prior = np.mean([r["map_bce_prior"] for r in map_records])
+        return f"BCE {model:.3f} (prior {prior:.3f})"
+    return f"{np.mean(point_errors):.2f} cells" if point_errors else "–"
+
+
+def remote_cell(point_remote: list, map_records: list) -> str:
+    if map_records:
+        model = np.mean([r["map_bce_remote_model"] for r in map_records])
+        prior = np.mean([r["map_bce_remote_prior"] for r in map_records])
+        return f"BCE {model:.3f} (prior {prior:.3f})"
+    return f"{np.mean(point_remote):.2f} cells" if point_remote else "–"
+
+
 def table(runs: dict[str, dict], ref: str, losses: list[float]) -> str:
     header = (f"| Method | Packet loss | Capture rate | Δ vs {ref} (paired) | Evaders / episode "
-              "| Time to capture | Belief error (cells) | Remote-only belief error |")  # fmt: skip
+              "| Time to capture | Belief quality | Remote-only belief quality |")  # fmt: skip
     lines = [header, "|---|---|---|---|---|---|---|---|"]
     for name, run in runs.items():
         for loss in losses:
@@ -85,6 +102,7 @@ def table(runs: dict[str, dict], ref: str, losses: list[float]) -> str:
                 paired = f"{d[0]:+.3f} ± {d[1]:.3f}"
             ttc = [r["mean_time_to_capture"] for r in recs if r["mean_time_to_capture"]]
             belief = [r["belief_error_cells"] for r in recs if "belief_error_cells" in r]
+            maps_ = [r for r in recs if "map_bce_model" in r]
             remote = [r["belief_remote_error_cells"] for r in recs
                       if "belief_remote_error_cells" in r]  # fmt: skip
             loss_txt = "– (no comm)" if label == "sampled" else f"{loss:g}"
@@ -92,8 +110,7 @@ def table(runs: dict[str, dict], ref: str, losses: list[float]) -> str:
                 f"| {name} | {loss_txt} | {cap[0]:.3f} ± {cap[1]:.3f} | {paired} | "
                 f"{np.mean([r['captures'] for r in recs]):.1f} | "
                 f"{(f'{np.mean(ttc):.0f}' if ttc else '–')} | "
-                f"{(f'{np.mean(belief):.2f}' if belief else '–')} | "
-                f"{(f'{np.mean(remote):.2f}' if remote else '–')} |"
+                f"{belief_cell(belief, maps_)} | {remote_cell(remote, maps_)} |"
             )
     return "\n".join(lines)
 

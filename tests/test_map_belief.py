@@ -172,3 +172,23 @@ def test_ppo_update_optimizes_the_map_loss():
     # Evaders move randomly, so BCE is bounded away from 0: require a clear drop below the
     # best constant prediction (measured: 0.421 -> 0.390 after 40 updates).
     assert current() < before - 0.02
+
+
+def test_map_evaluation_scores_against_references_and_plots(tmp_path):
+    from scripts import plot_beliefs
+
+    from dynabelief.evaluation.evaluate import evaluate_checkpoint
+
+    config = map_config()
+    MAPPOTrainer(config, "cpu", run_dir=tmp_path).train()
+    final = tmp_path / "checkpoints" / "final.pt"
+    summary = evaluate_checkpoint(config, final, episodes=1, device="cpu", run_dir=tmp_path / "e")
+    for key in ("map_bce_model", "map_bce_prior", "map_bce_own_view", "map_bce_remote_model",
+                "map_bce_remote_prior", "map_brier", "map_ece", "map_remote_ece"):  # fmt: skip
+        assert math.isfinite(summary[key]) and summary[key] >= 0, key
+    # the own-view reference is exact inside the view, so it beats the constant prior
+    assert summary["map_bce_own_view"] < summary["map_bce_prior"]
+    out = tmp_path / "map.png"
+    assert plot_beliefs.main(["--checkpoint", str(final), "--steps", "1", "5", "--agent", "2",
+                              "--output", str(out)]) == 0  # fmt: skip
+    assert out.stat().st_size > 10_000

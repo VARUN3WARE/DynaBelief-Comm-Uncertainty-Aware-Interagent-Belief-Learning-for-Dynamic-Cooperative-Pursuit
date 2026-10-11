@@ -14,6 +14,7 @@ from typing import Any, Protocol
 import numpy as np
 import torch
 
+from dynabelief.beliefs import maps
 from dynabelief.beliefs.targets import point_targets
 from dynabelief.comm.channel import PacketLossChannel
 from dynabelief.config import Config, config_from_dict
@@ -23,6 +24,51 @@ from dynabelief.training.rollout import summarize_episodes
 from dynabelief.utils.checkpointing import check_compatible, load_checkpoint
 from dynabelief.utils.logging import JsonlWriter
 from dynabelief.utils.seeding import derive_seed, make_rng
+
+
+class MapScores:
+    """Per-episode accumulator for occupancy-map beliefs and their naive references."""
+
+    KEYS = ("model", "prior", "own_view", "remote_model", "remote_prior")
+
+    def __init__(self) -> None:
+        self.bce = {k: [0.0, 0] for k in self.KEYS}
+        self.brier = [0.0, 0]
+        self.bins = np.zeros((maps.N_BINS, 3))
+        self.remote_bins = np.zeros((maps.N_BINS, 3))
+
+    def _add(self, key: str, p: np.ndarray, y: np.ndarray, mask: np.ndarray) -> None:
+        if mask.any():
+            n = int(mask.sum())
+            self.bce[key][0] += maps.bce(p, y, mask) * n
+            self.bce[key][1] += n
+
+    def update(self, belief, priv, actor, obs_range: int) -> None:
+        occupancy, free = maps.map_targets(priv.global_state)
+        y = np.broadcast_to(occupancy, belief.shape)
+        mask = np.broadcast_to(free, belief.shape) & actor.agent_mask[:, None, None]
+        own = maps.own_view_mask(priv.pursuer_pos, occupancy.shape, obs_range)
+        density = occupancy[free].mean() if free.any() else 0.0
+        prior = np.full(belief.shape, density)
+        own_view = np.where(own, y, prior)  # exact inside one's own view, prior elsewhere
+        remote = mask & ~own
+        self._add("model", belief, y, mask)
+        self._add("prior", prior, y, mask)
+        self._add("own_view", own_view, y, mask)
+        self._add("remote_model", belief, y, remote)
+        self._add("remote_prior", prior, y, remote)
+        self.brier[0] += maps.brier(belief, y, mask) * int(mask.sum())
+        self.brier[1] += int(mask.sum())
+        self.bins += maps.calibration_bins(belief, y, mask)
+        self.remote_bins += maps.calibration_bins(belief, y, remote)
+
+    def record(self) -> dict[str, Any]:
+        out = {f"map_bce_{k}": v[0] / v[1] for k, v in self.bce.items() if v[1]}
+        if self.brier[1]:
+            out["map_brier"] = self.brier[0] / self.brier[1]
+        out["map_calibration_bins"] = self.bins.tolist()
+        out["map_remote_calibration_bins"] = self.remote_bins.tolist()
+        return out
 
 
 def _cell_errors(guess: np.ndarray, target: np.ndarray, valid: np.ndarray, scale: np.ndarray):
@@ -89,7 +135,10 @@ class MAPPOAgent:
         )
         if self.policy.actor.belief_head is not None:
             with torch.no_grad():
-                self.last_belief = self.policy.actor.belief_head(self.hidden)[0].cpu().numpy()
+                out = self.policy.actor.belief_head(self.hidden)[0]
+                if self.policy.actor.belief_type == "map":
+                    out = torch.sigmoid(out)  # probabilities only for metrics / plots
+                self.last_belief = out.cpu().numpy()
         self.start = False
         return np.where(actor.agent_mask, actions[0].cpu().numpy(), 0)
 
@@ -126,6 +175,7 @@ def evaluate(
                 "model": [], "own": [], "centre": [], "remote_model": [], "remote_own": [],
             }  # fmt: skip
             labelled, remote, t = 0, 0, 0
+            map_scores = MapScores()
             # Fresh per-episode stream: episode k gets the same drop pattern for every
             # method, independent of how long earlier episodes lasted.
             channel = PacketLossChannel(
@@ -144,7 +194,12 @@ def evaluate(
                     delivery = channel.sample_delivery(alive)
                 actions = agent.act(actor, delivery)
                 belief = getattr(agent, "last_belief", None)
-                if belief is not None or on_step is not None:
+                if belief is not None and belief.ndim == 3:  # occupancy map [N, Y, X]
+                    map_scores.update(belief, priv, actor, env_cfg.obs_range)
+                    if on_step is not None:
+                        on_step({"episode": k, "t": t, "actor": actor, "privileged": priv,
+                                 "belief": belief, "target": None, "valid": None})  # fmt: skip
+                elif belief is not None or on_step is not None:
                     target, valid = point_targets(priv.pursuer_pos, priv.evader_pos,
                                                   priv.evader_alive, env_cfg.obs_range,
                                                   (env_cfg.x_size, env_cfg.y_size))  # fmt: skip
@@ -181,6 +236,8 @@ def evaluate(
                 **(extra or {}),
                 **(channel.stats.as_dict() if config.comm.enabled else {}),
             }
+            if map_scores.brier[1]:
+                record.update(map_scores.record())
             if errors["model"]:
                 record.update(
                     belief_error_cells=float(np.mean(errors["model"])),
@@ -213,6 +270,14 @@ def evaluate(
             values = [r[key] for r in records if key in r]
             if values:
                 summary[key] = float(np.mean(values))
+    if records and "map_brier" in records[0]:
+        for key in [k for k in records[0] if k.startswith("map_bce_")] + ["map_brier"]:
+            summary[key] = float(np.mean([r[key] for r in records]))
+        for key, out in (("map_calibration_bins", "map_ece"),
+                         ("map_remote_calibration_bins", "map_remote_ece")):  # fmt: skip
+            summary[out] = maps.expected_calibration_error(
+                np.sum([np.asarray(r[key]) for r in records], axis=0)
+            )
     if config.comm.enabled and records:
         sent = sum(r["messages_sent"] for r in records)
         delivered = sum(r["messages_delivered"] for r in records)
