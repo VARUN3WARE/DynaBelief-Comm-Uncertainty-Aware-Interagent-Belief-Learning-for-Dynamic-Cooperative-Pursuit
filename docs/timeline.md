@@ -39,3 +39,7 @@ What happened, in order, with the commit and the key number. Decisions are in
 | `bd04fae` | M4 smoke job on AWS (`dynabelief-smoke-diabl-20261010-164844`) | Completed: belief loss falls, sender gradient non-zero, events/windows/replay work |
 | `64def42` `d58a27f` `07ab675` `29744fc` | Belief eval metrics + plots, eval-only jobs, `compare_runs.py`; fixes for old-checkpoint compatibility and live metric sync | — |
 | `3628b49` | **M4 runs**: `tarmac_pos` (control) and `point_diabl`, 5M steps each ($20 incl. evals) | **point DIABL 0.974 vs 0.562** capture rate (paired Δ **+0.41 ± 0.03**), 0.966 at 50 % loss; with no messages it falls to 0.561, so the gain is communication. `best.pt` 1.000. Late-training collapse/recovery and greedy collapse noted ([result](results/m4_point_diabl.md)). **M4 complete** |
+| `7c3844f` | **M5.1** map targets + calibration metrics | (x, y) → target[y, x] verified on real resets; ECE ≈ 0 when calibrated |
+| `b9e5610` | **M5.2** D-DIABL map head + BCE through the channel | Prior-initialized; receiver's map trains senders only via delivered messages; PPO pushes BCE below the best constant |
+| `22f8d44` | **M5.3** map evaluation (BCE / Brier / ECE vs prior and own-view maps), map plots, `d_diabl.yaml` | AWS test job: **251 passed**; D-DIABL smoke job completed |
+| `22f8d44` | **M5 runs**: `d_diabl` (`ml.g4dn.16xlarge`, as point DIABL) and `d_diabl_coef10` (`ml.g5.8xlarge`) | Running, 5M steps each |

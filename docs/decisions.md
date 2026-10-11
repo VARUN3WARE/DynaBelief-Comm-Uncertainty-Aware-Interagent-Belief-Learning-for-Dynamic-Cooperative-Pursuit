@@ -77,3 +77,13 @@ query only learn when at least two messages compete for a receiver.
 | D37 | 10-11 | Evaluate communicating methods also at **100 % packet loss** | Causal check: DIABL drops from 0.974 to 0.561 (control level), so its gain is communication, not a better solo policy |
 | D38 | 10-11 | Report `final.pt` as the main number; `best.pt` (peak training window) only as declared early stopping | DIABL final 0.974 vs best 1.000; a late collapse (4.55M steps) recovered by 5M |
 | D39 | 10-11 | Open before M7: (a) the late-training spikes with belief + replay (replay steps per update, replay lr, stale stored hidden states), (b) greedy collapse of communicating policies, (c) own position for all methods (D32) | [m4_point_diabl.md](results/m4_point_diabl.md) observations 5–6 |
+
+## Occupancy-map beliefs (M5)
+
+| ID | Date | Decision | Evidence / reason |
+|---|---|---|---|
+| D40 | 10-11 | D-DIABL target = **true occupancy of all evaders** (not only seen ones), BCE over free cells | A calibrated map must report the base rate where nothing is known and spread probability around stale sightings; that uncertainty is what a point cannot express. Unlike the point belief there is no "found" mask |
+| D41 | 10-11 | Map head output bias initialized at the prior logit (30 / 193 free cells) | Measured initial BCE 0.4207 vs 0.4206 for the best constant: training starts calibrated instead of at p = 0.5 |
+| D42 | 10-11 | Map beliefs are judged against two naive maps: prior density and own-view (exact in one's view, prior elsewhere), also on remote-only cells; plus ECE | Separates information from memory and messages from what the agent sees itself |
+| D43 | 10-11 | Main D-DIABL run uses `belief.coef = 1.0` (same as point DIABL); a `coef = 10` variant runs alongside | BCE is averaged over 256 cells, so its gradient on the senders is 2–20× smaller than the point loss's (smoke job: 0.0001–0.0008 vs 0.0017–0.0028) |
+| D44 | 10-11 | Optional single-target softmax/KL ablation: not run | Optional in the plan; time goes to the main comparison and the coefficient check |
