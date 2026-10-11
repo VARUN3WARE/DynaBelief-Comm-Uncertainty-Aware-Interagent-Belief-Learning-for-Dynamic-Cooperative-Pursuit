@@ -16,13 +16,20 @@ Object Search*, IEEE T-RO 2026 ([code](https://github.com/JernejPuc/centurymaze)
 | M2 | No-Communication MAPPO | done: capture rate 0.54–0.55 vs 0.029 random ([result](docs/results/m2_baseline.md)) |
 | M3 | TarMAC-MAPPO | done: 0.561 vs 0.537, same plateau reached ~2× faster ([result](docs/results/m3_tarmac.md)) |
 | M4 | point-belief DIABL + uniform InfER | done: 0.974 vs 0.562 control, gain needs messages ([result](docs/results/m4_point_diabl.md)) |
-| M5 | D-DIABL | |
+| M5 | D-DIABL | done: 0.623 at `belief.coef` 10 (+0.06 vs control), 0.523 at coef 1; point DIABL far ahead ([result](docs/results/m5_d_diabl.md)) |
 | M6 | SP-InfER | |
 | M7 | three-seed evaluation | |
 
 `train.policy: random` runs a no-learning smoke rollout (summaries record `"learning": false`).
-`train.policy: mappo` trains the No-Communication MAPPO baseline. The first learning result is
-in [docs/results/m2_learning_check.md](docs/results/m2_learning_check.md).
+`train.policy: mappo` trains every learned method; the config selects it:
+
+| Config | Method |
+|---|---|
+| `no_comm.yaml` | No-Communication MAPPO (M2) |
+| `tarmac.yaml` | + TarMAC messages (M3) |
+| `tarmac_pos.yaml` | + own-position input: the control for belief methods (M4) |
+| `point_diabl.yaml` | + point belief through the channel + uniform InfER (M4) |
+| `d_diabl.yaml`, `d_diabl_coef10.yaml` | occupancy-map belief instead of the point, `belief.coef` 1 / 10 (M5) |
 
 Documentation: [docs/](docs/README.md) has the [timeline](docs/timeline.md), the
 [decision log](docs/decisions.md) (including how and why decisions changed) and
@@ -93,8 +100,8 @@ records), `metrics.jsonl`, and `summary.json`.
 ## Design contracts
 
 **Information boundary (CTDE).** Every env step returns two objects:
-`ActorObs` (local views + agent mask, the only actor inputs) and `PrivilegedInfo`
-(global state, evader occupancy, positions: critic, auxiliary labels, and metrics only).
+`ActorObs` (local views, agent mask, own position: the only actor inputs) and `PrivilegedInfo`
+(global state, evader occupancy, positions: critic, belief labels, and metrics only).
 `tests/test_information_boundary.py` checks that each actor observation is exactly the local
 crop of the global state, including on capture steps.
 
@@ -118,6 +125,21 @@ recurrent chunks of `ppo.chunk_length` steps over (env, chunk) units, keeping al
 env together for M3's communication. Gradients do not cross chunk boundaries, so
 `chunk_length` bounds the memory horizon the GRU can be trained for. Value targets are
 normalized (ValueNorm); actor and critic use separate Adam optimizers.
+
+**TarMAC (M3).** Each agent sends a key and a value computed from its previous hidden state;
+receivers attend over delivered messages only (query from their own previous hidden state) and
+feed the attended value to the GRU with their observation features. Undelivered messages have
+no effect and no gradient, and nothing is sent at an episode start.
+
+**Point DIABL + InfER (M4).** A belief head on the post-communication hidden state predicts the
+normalized (x, y) of the nearest evader any teammate sees. Its loss flows back through the
+channel into the senders (DIABL). InfER replays 16-step windows that end at an evader's first
+discovery, as belief-only steps with their own optimizer and full message delivery.
+
+**D-DIABL (M5).** The belief is a per-cell logit map of where evaders are, trained with
+BCE against the true occupancy of all evaders over free cells, output bias at the prior density.
+Evaluation reports BCE, Brier and calibration (ECE) against a prior-density map and an own-view
+map, also on remote cells only.
 
 **Resume.** A checkpoint restores weights, both optimizers, ValueNorm, every RNG stream, and
 counters exactly. PettingZoo's simulator state cannot be serialized, so a resumed run starts each
@@ -158,14 +180,18 @@ slowest worker. Peak VRAM is ~1 GB and RAM ~1.4 GB.
 
 ```
 cloud/              launch.py (SageMaker jobs from this machine), sagemaker_entry.py (in-job)
-configs/            smoke.yaml, default.yaml, smoke_mappo.yaml, debug_learning.yaml, no_comm.yaml
-scripts/            train.py, evaluate.py, benchmark_env.py, plot_metrics.py
+configs/            smoke*.yaml, default.yaml, debug_learning.yaml, one file per method (table above)
+scripts/            train.py, evaluate.py, benchmark_env.py, plot_metrics.py, plot_beliefs.py,
+                    compare_runs.py (paired comparison tables + plots)
 docs/               timeline, decision log, SageMaker guide, results/ (tables + plots from raw data)
 src/dynabelief/
   config.py         strict dataclass config
   envs/             pursuit.py (wrapper + boundary types), vector.py (auto-reset vector env, workers)
   comm/             channel.py (packet loss + message accounting)
-  models/           encoder.py (CNNs), actor_critic.py (recurrent actor, central critic)
+  models/           encoder.py (CNNs), comm.py (TarMAC), belief.py (point / map heads),
+                    actor_critic.py (recurrent actor, central critic)
+  beliefs/          targets.py (point labels), maps.py (map targets + calibration), losses.py
+  replay/           infer.py (event windows, uniform replay)
   algorithms/       gae.py, mappo.py (PPO losses + update)
   policies/         random_policy.py
   training/         rollout.py (smoke rollout), buffer.py (recurrent minibatches), trainer.py

@@ -42,4 +42,4 @@ What happened, in order, with the commit and the key number. Decisions are in
 | `7c3844f` | **M5.1** map targets + calibration metrics | (x, y) → target[y, x] verified on real resets; ECE ≈ 0 when calibrated |
 | `b9e5610` | **M5.2** D-DIABL map head + BCE through the channel | Prior-initialized; receiver's map trains senders only via delivered messages; PPO pushes BCE below the best constant |
 | `22f8d44` | **M5.3** map evaluation (BCE / Brier / ECE vs prior and own-view maps), map plots, `d_diabl.yaml` | AWS test job: **251 passed**; D-DIABL smoke job completed |
-| `22f8d44` | **M5 runs**: `d_diabl` (`ml.g4dn.16xlarge`, as point DIABL) and `d_diabl_coef10` (`ml.g5.8xlarge`) | Running, 5M steps each |
+| `22f8d44` | **M5 runs**: `d_diabl` (coef 1, `ml.g4dn.16xlarge`) and `d_diabl_coef10` (`ml.g5.8xlarge`), 5M steps each ($21 incl. evals) | coef 1: **0.523** (Δ −0.04 ± 0.03), calibrated (ECE 0.009) but no better than one's own view. coef 10: **0.623** (Δ **+0.06 ± 0.03**), map beats the naive maps on remote cells and needs messages. Point DIABL stays far ahead (0.974) (D45, D46; [result](results/m5_d_diabl.md)). **M5 complete** |
