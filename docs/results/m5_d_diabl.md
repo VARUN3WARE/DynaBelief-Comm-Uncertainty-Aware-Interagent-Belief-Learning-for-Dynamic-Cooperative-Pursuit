@@ -32,6 +32,14 @@ control `tarmac_pos` at the same packet loss, 95 % CI.
 
 Full per-loss table: [m5_d_diabl_comparison.md](m5_d_diabl_comparison.md).
 
+**Device check (added 2026-10-21).** The Δ column pairs D-DIABL's in-job GPU evals with the
+control's CPU eval-only job. The control's own in-job GPU eval (0–30 % loss only) scores the same
+checkpoint 0.564 / 0.567 / 0.581 / 0.563, against the CPU eval's 0.562 / 0.573 / 0.553 / 0.550.
+Against it, coef 10 gives Δ +0.059 ± 0.032 (0 %), +0.044 ± 0.030 (10 %), **+0.027 ± 0.027 (20 %,
++4.7 %)** and +0.068 ± 0.029 (30 %). Coef 1 gives −0.041 ± 0.035 (0 %) and −0.083 ± 0.036 (20 %).
+The evaluation device alone moves a score by up to 0.028, which is as large as D-DIABL's effect,
+so M7 evaluates every checkpoint on one device with more episodes.
+
 ![Comparison](m5_d_diabl_comparison.png)
 
 ## Map quality
@@ -64,7 +72,8 @@ Training belief loss (BCE, coef 10): 0.412 at start (= best constant, D41) → 0
    carries little information: it is worse than simply copying one's own view (0.300 vs 0.293),
    and its small remote advantage over the prior (0.006 nats/cell) vanishes with no messages.
 2. **coef 10: a modest gain that needs messages.** +0.06 ± 0.03 capture rate over the control,
-   positive at every loss up to 50 %, with captures 16 steps faster. Its map beats both naive
+   positive at every loss up to 50 % against the CPU-evaluated control (against the same-device
+   control the 20 % gain is only +0.027 ± 0.027; see the device check above). Its map beats both naive
    maps, also on remote cells (0.295 vs 0.309), so teammates' messages now locate evaders the
    agent cannot see. With every message dropped the remote map becomes worse than the prior
    (0.344 vs 0.336) and miscalibrated (ECE 0.003 → 0.031): the policy and map rely on the
@@ -84,6 +93,7 @@ Training belief loss (BCE, coef 10): 0.412 at start (= best constant, D41) → 0
 6. Attention entropy (median of the last 100 updates): 1.55 (coef 1) and 1.41 (coef 10) nats vs
    1.69 point DIABL and 0.85 `tarmac_pos`: belief supervision again spreads attention over senders.
 
-**Caveats:** one seed per run; the two runs used different GPU types; coef 10 was not
+**Caveats:** one seed per run; the two runs used different GPU types; the control was evaluated
+on a different device (device check above), and 50 episodes give a standard error of about 0.012; coef 10 was not
 converged at 5M steps and no other coefficient was tried; the single-target softmax ablation was
 not run (D44); the explanation in 3 is a hypothesis.
