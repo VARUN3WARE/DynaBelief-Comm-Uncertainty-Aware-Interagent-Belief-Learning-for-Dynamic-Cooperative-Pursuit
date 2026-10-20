@@ -94,6 +94,6 @@ Training belief loss (BCE, coef 10): 0.412 at start (= best constant, D41) → 0
    1.69 point DIABL and 0.85 `tarmac_pos`: belief supervision again spreads attention over senders.
 
 **Caveats:** one seed per run; the two runs used different GPU types; the control was evaluated
-on a different device (device check above), and 50 episodes give a standard error of about 0.012; coef 10 was not
-converged at 5M steps and no other coefficient was tried; the single-target softmax ablation was
-not run (D44); the explanation in 3 is a hypothesis.
+on a different device (device check above); 50 episodes give a standard error of about 0.012;
+coef 10's belief loss had not converged at 5M steps and no other coefficient was tried; the
+single-target softmax ablation was not run (D44); the explanation in 3 is a hypothesis.
