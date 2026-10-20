@@ -133,7 +133,7 @@ no effect and no gradient, and nothing is sent at an episode start.
 
 **Point DIABL + InfER (M4).** A belief head on the post-communication hidden state predicts the
 normalized (x, y) of the nearest evader any teammate sees. Its loss flows back through the
-channel into the senders (DIABL). InfER replays 16-step windows that end at an evader's first
+channel into the senders (DIABL). InfER replays 16-step windows that start at an evader's first
 discovery, as belief-only steps with their own optimizer and full message delivery.
 
 **D-DIABL (M5).** The belief is a per-cell logit map of where evaders are, trained with
