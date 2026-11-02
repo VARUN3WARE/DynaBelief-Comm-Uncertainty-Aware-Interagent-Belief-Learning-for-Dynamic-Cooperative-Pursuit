@@ -35,12 +35,12 @@ Documentation: [docs/](docs/README.md) has the [timeline](docs/timeline.md), the
 [decision log](docs/decisions.md) (including how and why decisions changed) and
 [results](docs/results/).
 
-**Training runs on SageMaker** ([docs/sagemaker.md](docs/sagemaker.md)); the local machine only
-launches jobs and runs tests:
+**Training runs on Kaggle** ([docs/kaggle.md](docs/kaggle.md); M2–M5 ran on SageMaker,
+[docs/sagemaker.md](docs/sagemaker.md)); the local machine only launches jobs and runs tests:
 
 ```bash
-.venv/bin/python cloud/launch.py train --config configs/no_comm.yaml   # committed HEAD only
-.venv/bin/python cloud/launch.py status
+.venv/bin/python cloud/kaggle_launch.py train --config configs/point_diabl.yaml --seed 1  # pushed HEAD only
+.venv/bin/python cloud/kaggle_launch.py status
 ```
 
 ## Setup (Linux)
@@ -179,11 +179,11 @@ slowest worker. Peak VRAM is ~1 GB and RAM ~1.4 GB.
 ## Repository layout
 
 ```
-cloud/              launch.py (SageMaker jobs from this machine), sagemaker_entry.py (in-job)
+cloud/              kaggle_launch.py / kaggle_entry.py (Kaggle jobs), launch.py / sagemaker_entry.py (SageMaker, M2-M5)
 configs/            smoke*.yaml, default.yaml, debug_learning.yaml, one file per method (table above)
 scripts/            train.py, evaluate.py, benchmark_env.py, plot_metrics.py, plot_beliefs.py,
                     compare_runs.py (paired comparison tables + plots)
-docs/               timeline, decision log, SageMaker guide, results/ (tables + plots from raw data)
+docs/               timeline, decision log, Kaggle and SageMaker guides, results/ (tables + plots from raw data)
 src/dynabelief/
   config.py         strict dataclass config
   envs/             pursuit.py (wrapper + boundary types), vector.py (auto-reset vector env, workers)

@@ -4,7 +4,8 @@
 |---|---|
 | [timeline.md](timeline.md) | What was done when: commit, step, key number |
 | [decisions.md](decisions.md) | Every design decision with its evidence, including decisions that were changed and why |
-| [sagemaker.md](sagemaker.md) | How training jobs are launched, monitored and downloaded |
+| [kaggle.md](kaggle.md) | How jobs are launched on Kaggle (all runs from 2026-11-02) |
+| [sagemaker.md](sagemaker.md) | How the M2–M5 SageMaker jobs were launched, monitored and downloaded |
 | [results/](results/) | One note per result: setup, table, curves, observations |
 
 Results so far:

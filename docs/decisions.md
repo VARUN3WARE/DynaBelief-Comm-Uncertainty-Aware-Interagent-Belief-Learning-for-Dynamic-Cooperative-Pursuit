@@ -49,6 +49,7 @@ Commit hashes refer to the current (rewritten) history.
 | D21 | 10-07 | Plan: develop on the PC, use SageMaker for the M7 sweeps | PC: RTX 3050 4 GB, 16 threads; simulator ~360 env steps/s per process |
 | D22 | 10-07 | **Changed (user decision): all training runs on SageMaker** | The PC is shared with other heavy jobs, and the local 5M-step baseline was killed at 3.84M steps when the session ended |
 | D23 | 10-07 | **Changed:** SageMaker **GPU** instances (`ml.g4dn.8xlarge`), not CPU-only ones | One PPO update at the baseline batch: 1.5 s on GPU vs 14.4 s on CPU (4 or 8 threads), i.e. ~5 h of updates per 5M-step run on CPU. The vCPUs run the env workers |
+| D47 | 11-02 | **Changed (user decision): all remaining runs on Kaggle** (T4 sessions, 4 vCPUs, 12 h limit, ~30 GPU-h/week per account), launched with `cloud/kaggle_launch.py` ([kaggle.md](kaggle.md)). Each job clones one pushed commit; runs stop at 11.25 h and are rerun from scratch, never resumed; one Kaggle image and GPU type for all confirmatory runs. The SageMaker M2–M5 runs become single-seed pilots | Saves the shared AWS credits ($51.48 spent on M2–M5). The simulator is CPU-bound, so a run takes longer than on 32–64 vCPU instances; measured by `kaggle_launch.py bench` before the grid |
 
 ## Communication (M3)
 
