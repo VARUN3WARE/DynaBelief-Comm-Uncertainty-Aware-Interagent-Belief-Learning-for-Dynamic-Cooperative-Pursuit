@@ -74,3 +74,16 @@ def test_entry_train_dry_run_writes_status_and_outputs(tmp_path, monkeypatch):
     for name in ("config.yaml", "metrics.jsonl", "summary.json", "curves.png"):
         assert (run_dir / name).exists(), name
     assert (run_dir / "checkpoints" / "final.pt").exists()
+
+
+def test_train_command_keeps_snapshots_and_seed(tmp_path, monkeypatch):
+    captured = {}
+    monkeypatch.setattr(launch, "launch", lambda label, entry, **kw: captured.update(
+        label=label, entry=entry, **kw) or 0)  # fmt: skip
+    args = launch.build_parser().parse_args(
+        ["train", "--config", "configs/point_diabl.yaml", "--seed", "2", "--set", "a.b=1"]
+    )
+    assert launch.cmd_train(args) == 0
+    sets = [captured["entry"][i + 1] for i, x in enumerate(captured["entry"]) if x == "--set"]
+    assert sets == ["experiment.seed=2", "train.snapshot_every_updates=100", "a.b=1"]
+    assert captured["label"] == "point_diabl-s2" and captured["gpu"]

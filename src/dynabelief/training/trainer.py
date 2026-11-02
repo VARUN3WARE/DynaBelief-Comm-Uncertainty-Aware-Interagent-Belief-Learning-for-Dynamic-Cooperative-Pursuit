@@ -390,6 +390,9 @@ class MAPPOTrainer:
                 every = cfg.checkpoint_every_updates
                 if every and self.update_index % every == 0:
                     self.save("latest.pt")
+                snap = cfg.snapshot_every_updates
+                if snap and self.update_index % snap == 0:
+                    self.save(f"snapshot_u{self.update_index:05d}.pt")
             final_path = self.save("final.pt")
             self.save("latest.pt")
         finally:

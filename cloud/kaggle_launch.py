@@ -170,7 +170,8 @@ def launch(label: str, entry_args: list[str], gpu: bool, dry_run: bool, extra: d
 
 
 def cmd_train(args: argparse.Namespace) -> int:
-    overrides = [f"experiment.seed={args.seed}", *args.set]
+    overrides = [f"experiment.seed={args.seed}",
+                 f"train.snapshot_every_updates={args.snapshot_every}", *args.set]  # fmt: skip
     entry = ["--mode", "train", "--config", args.config, "--workers", str(args.workers),
              "--time_limit_hours", str(args.time_limit_hours)]  # fmt: skip
     for override in overrides:
@@ -229,6 +230,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--set", action="append", default=[], metavar="SECTION.KEY=VALUE")
     p.add_argument("--workers", type=int, default=4, help="env workers (results do not change, D9)")
     p.add_argument("--time_limit_hours", type=float, default=11.25)
+    p.add_argument("--snapshot_every", type=int, default=100, help="snapshot every N updates")
     p.add_argument("--name", help="job label (default: <config>-s<seed>)")
     p.add_argument("--dry-run", action="store_true", help="write the kernel, do not push")
     p.set_defaults(func=cmd_train)

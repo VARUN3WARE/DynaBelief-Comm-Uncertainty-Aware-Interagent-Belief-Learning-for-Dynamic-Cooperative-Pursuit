@@ -104,6 +104,23 @@ def test_training_run_writes_finite_metrics_and_checkpoints(tmp_path, workers):
     assert ckpt["episode_index"] == [2, 2]
 
 
+def test_snapshots_are_saved_and_do_not_change_training(tmp_path):
+    """snapshot_every_updates only writes files: weights and losses stay bit-identical."""
+    plain, snap = tmp_path / "plain", tmp_path / "snap"
+    MAPPOTrainer(tiny(total_env_steps=64), "cpu", run_dir=plain).train()
+    MAPPOTrainer(tiny(total_env_steps=64, snapshot_every_updates=2), "cpu", run_dir=snap).train()
+    names = sorted(p.name for p in (snap / "checkpoints").glob("snapshot_*.pt"))
+    assert names == ["snapshot_u00002.pt", "snapshot_u00004.pt"]
+    assert not list((plain / "checkpoints").glob("snapshot_*.pt"))
+    a = load_checkpoint(plain / "checkpoints" / "final.pt")["learner"]["policy"]
+    b = load_checkpoint(snap / "checkpoints" / "final.pt")["learner"]["policy"]
+    assert a.keys() == b.keys() and all(torch.equal(a[k], b[k]) for k in a)
+    keys = ("policy_loss", "value_loss", "entropy", "approx_kl")
+    for ma, mb in zip(read_jsonl(plain / "metrics.jsonl"), read_jsonl(snap / "metrics.jsonl"),
+                      strict=True):  # fmt: skip
+        assert [ma[k] for k in keys] == [mb[k] for k in keys]
+
+
 @pytest.mark.parametrize("device", DEVICES)
 def test_resume_continues_counters_on_every_device(tmp_path, device):
     first = MAPPOTrainer(tiny(), device, run_dir=tmp_path / "a")
