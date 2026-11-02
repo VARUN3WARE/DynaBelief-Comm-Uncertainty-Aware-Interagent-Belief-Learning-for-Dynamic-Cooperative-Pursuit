@@ -89,6 +89,9 @@ class RecurrentActor(nn.Module):
         start: torch.Tensor,
         delivery: torch.Tensor | None,
         own_pos: torch.Tensor | None = None,
+        sender_hidden: torch.Tensor | None = None,
+        detach_messages: bool = False,
+        message_transform=None,
     ) -> torch.Tensor:
         """One GRU step; ``start`` [B] bool zeroes the hidden state of new episodes.
 
@@ -101,7 +104,9 @@ class RecurrentActor(nn.Module):
             if delivery is None:
                 raise ValueError("this actor communicates: pass the delivery mask")
             delivery = delivery & ~start[:, None, None]
-            context, self.last_attention = self.comm(hidden, delivery)
+            context, self.last_attention = self.comm(
+                hidden, delivery, sender_hidden, detach_messages, message_transform
+            )
             features = torch.cat([features, context], dim=-1)
         if self.use_own_position:
             if own_pos is None:
@@ -118,9 +123,17 @@ class RecurrentActor(nn.Module):
         episode_start: torch.Tensor,
         delivery: torch.Tensor | None = None,
         own_pos: torch.Tensor | None = None,
+        sender_hidden: torch.Tensor | None = None,
+        message_transform=None,
     ):
-        """Single step. Returns ``(logits [B, N, A], new_hidden [B, N, H])``."""
-        new_hidden = self._recur(self.encoder(obs), hidden, episode_start, delivery, own_pos)
+        """Single step. Returns ``(logits [B, N, A], new_hidden [B, N, H])``.
+
+        ``sender_hidden`` / ``message_transform``: evaluation-only channel options (see
+        ``TarMACComm.forward``)."""
+        new_hidden = self._recur(
+            self.encoder(obs), hidden, episode_start, delivery, own_pos,
+            sender_hidden=sender_hidden, message_transform=message_transform,
+        )  # fmt: skip
         return self.policy_head(new_hidden), new_hidden
 
     def unroll(
@@ -131,6 +144,7 @@ class RecurrentActor(nn.Module):
         delivery: torch.Tensor | None = None,
         own_pos: torch.Tensor | None = None,
         return_hidden: bool = False,
+        detach_messages: bool = False,
     ):
         """Sequence ``obs [L, B, N, ...]``, ``episode_start [L, B]``, ``delivery
         [L, B, N, N]``, ``own_pos [L, B, N, 2]`` -> logits ``[L, B, N, A]`` (and the
@@ -145,7 +159,8 @@ class RecurrentActor(nn.Module):
         for t in range(obs.shape[0]):
             step_delivery = None if delivery is None else delivery[t]
             step_pos = None if own_pos is None else own_pos[t]
-            hidden = self._recur(features[t], hidden, episode_start[t], step_delivery, step_pos)
+            hidden = self._recur(features[t], hidden, episode_start[t], step_delivery, step_pos,
+                                 detach_messages=detach_messages)  # fmt: skip
             outputs.append(hidden)
         hiddens = torch.stack(outputs)
         logits = self.policy_head(hiddens)
@@ -231,9 +246,13 @@ class MAPPOPolicy(nn.Module):
         *,
         delivery: torch.Tensor | None = None,
         own_pos: torch.Tensor | None = None,
+        sender_hidden: torch.Tensor | None = None,
+        message_transform=None,
     ):
         """Returns ``(actions [B, N], log_probs [B, N], new_hidden [B, N, H])``."""
-        logits, new_hidden = self.actor.step(obs, hidden, episode_start, delivery, own_pos)
+        logits, new_hidden = self.actor.step(
+            obs, hidden, episode_start, delivery, own_pos, sender_hidden, message_transform
+        )
         dist = Categorical(logits=logits)
         actions = logits.argmax(-1) if deterministic else dist.sample()
         return actions, dist.log_prob(actions), new_hidden

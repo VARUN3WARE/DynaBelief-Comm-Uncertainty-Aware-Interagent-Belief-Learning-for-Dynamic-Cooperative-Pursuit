@@ -35,18 +35,34 @@ class TarMACComm(nn.Module):
         self.value = init_layer(nn.Linear(hidden_dim, value_dim), gain=1.0)
 
     def forward(
-        self, hidden: torch.Tensor, delivery: torch.Tensor
+        self,
+        hidden: torch.Tensor,
+        delivery: torch.Tensor,
+        sender_hidden: torch.Tensor | None = None,
+        detach_messages: bool = False,
+        message_transform=None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """``hidden [B, N, H]`` (previous step), ``delivery [B, N_recv, N_send]`` bool.
 
         Returns ``(context [B, N, value_dim], attention [B, N_recv, N_send])``; attention
         rows sum to 1 when at least one message was delivered, else they are all 0.
+
+        Options (all off by default, which leaves the computation unchanged):
+        ``sender_hidden`` builds keys/values from other (e.g. older) sender states than
+        the queries, for a multi-step delay (evaluation only); ``detach_messages`` stops
+        gradients through keys/values (stop-gradient arm F); ``message_transform(k, v)``
+        alters what is transmitted, e.g. 8-bit quantization (evaluation only).
         """
         if delivery.shape != hidden.shape[:2] + hidden.shape[1:2]:
             raise ValueError(
                 f"delivery {tuple(delivery.shape)} does not match {tuple(hidden.shape)}"
             )
-        q, k, v = self.query(hidden), self.key(hidden), self.value(hidden)
+        source = hidden if sender_hidden is None else sender_hidden
+        q, k, v = self.query(hidden), self.key(source), self.value(source)
+        if detach_messages:
+            k, v = k.detach(), v.detach()
+        if message_transform is not None:
+            k, v = message_transform(k, v)
         scores = q @ k.transpose(-1, -2) / math.sqrt(self.key_dim)  # [B, recv, send]
         any_delivered = delivery.any(dim=-1, keepdim=True)
         # Masked entries get -inf (zero weight, zero gradient); rows with no delivery

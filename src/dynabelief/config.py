@@ -265,10 +265,17 @@ class BeliefConfig:
 
     type: str = "none"
     coef: float = 1.0  # weight of the belief loss in the actor loss
+    # False = stop the belief loss's gradient at the message tensors (mechanism arm F):
+    # beliefs still train each agent's own network, but no longer train the senders.
+    channel_gradient: bool = True
 
     def validate(self) -> None:
         _require(self.type in BELIEF_TYPES, f"belief.type must be one of {BELIEF_TYPES}")
         _require(self.coef >= 0.0, "belief.coef must be >= 0")
+        _require(
+            self.channel_gradient or self.type != "none",
+            "belief.channel_gradient=false needs a belief (belief.type != none)",
+        )
 
 
 REPLAY_TYPES = ("none", "uniform")

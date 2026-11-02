@@ -128,6 +128,7 @@ class MAPPOTrainer:
                 self.device,
                 generator,
                 belief_coef=config.belief.coef if config.belief.type != "none" else 0.0,
+                belief_through_channel=config.belief.channel_gradient,
                 grid_scale=float(config.env.x_size - 1),
                 replay=self.replay,
                 replay_config=config.replay if self.replay is not None else None,

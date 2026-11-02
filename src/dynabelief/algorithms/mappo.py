@@ -111,12 +111,16 @@ class MAPPO:
         grid_scale: float = 1.0,
         replay=None,
         replay_config=None,
+        belief_through_channel: bool = True,
     ) -> None:
         """``belief_coef`` weights the belief loss in the actor loss; ``grid_scale`` converts
-        normalized belief errors to grid cells for logging (x_size - 1)."""
+        normalized belief errors to grid cells for logging (x_size - 1).
+        ``belief_through_channel=False`` is the stop-gradient arm F: the belief loss is
+        computed on a forward pass with detached messages (PPO keeps the normal pass)."""
         self.policy = policy
         self.config = config
         self.belief_coef = belief_coef
+        self.belief_through_channel = belief_through_channel
         self.grid_scale = grid_scale
         self.device = torch.device(device)
         self.generator = generator  # CPU generator for minibatch shuffling
@@ -225,8 +229,16 @@ class MAPPO:
             huber_delta=cfg.huber_delta,
         )
         if actor.belief_head is not None:
+            belief_hiddens = hiddens
+            if not self.belief_through_channel:
+                # Arm F: same forward values, but keys/values are detached, so receivers'
+                # beliefs cannot train the senders through messages.
+                _, belief_hiddens = actor.unroll(
+                    mb.obs, mb.actor_hidden0, mb.episode_start, delivery, own_pos,
+                    return_hidden=True, detach_messages=True,
+                )  # fmt: skip
             terms.belief_loss, terms.belief_metrics = belief_loss(
-                actor, hiddens, mb, self.grid_scale
+                actor, belief_hiddens, mb, self.grid_scale
             )
         return terms
 
@@ -251,6 +263,7 @@ class MAPPO:
             batch.delivery if actor.comm is not None else None,
             batch.own_pos if actor.use_own_position else None,
             return_hidden=True,
+            detach_messages=not self.belief_through_channel,
         )
         loss, _ = belief_loss(actor, hiddens, batch, self.grid_scale)
         if not torch.isfinite(loss):
