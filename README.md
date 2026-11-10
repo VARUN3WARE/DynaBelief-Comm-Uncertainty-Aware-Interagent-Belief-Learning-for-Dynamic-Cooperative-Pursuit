@@ -17,8 +17,8 @@ Object Search*, IEEE T-RO 2026 ([code](https://github.com/JernejPuc/centurymaze)
 | M3 | TarMAC-MAPPO | done: 0.561 vs 0.537, same plateau reached ~2× faster ([result](docs/results/m3_tarmac.md)) |
 | M4 | point-belief DIABL + uniform InfER | done: 0.974 vs 0.562 control, gain needs messages ([result](docs/results/m4_point_diabl.md)) |
 | M5 | D-DIABL | done: 0.623 at `belief.coef` 10 (+0.06 vs control), 0.523 at coef 1; point DIABL far ahead ([result](docs/results/m5_d_diabl.md)) |
-| M6 | SP-InfER | |
-| M7 | three-seed evaluation | |
+| M6 | ~~SP-InfER~~ (cut: 95 % of first sightings fall in the first 20 steps) → filter-teacher arm C′: the map belief supervised with the team posterior of a training-only Bayes filter | code done ([D50](docs/decisions.md)) |
+| M7 | multi-seed evaluation: arms ctrl / A / D / C′ / F, channel conditions, hypotheses | running ([plan and deviations](docs/results/README_m7.md)) |
 
 `train.policy: random` runs a no-learning smoke rollout (summaries record `"learning": false`).
 `train.policy: mappo` trains every learned method; the config selects it:
@@ -30,6 +30,26 @@ Object Search*, IEEE T-RO 2026 ([code](https://github.com/JernejPuc/centurymaze)
 | `tarmac_pos.yaml` | + own-position input: the control for belief methods (M4) |
 | `point_diabl.yaml` | + point belief through the channel + uniform InfER (M4) |
 | `d_diabl.yaml`, `d_diabl_coef10.yaml` | occupancy-map belief instead of the point, `belief.coef` 1 / 10 (M5) |
+| `d_diabl_posterior.yaml` | arm C′: `d_diabl_coef10` with the map target = team posterior of a training-only evader filter |
+| `point_diabl_stopgrad.yaml` | arm F: point DIABL with the belief gradient stopped at the messages |
+
+**Final evaluation pipeline** (CPU, one torch thread per cell; every report number comes from
+these scripts):
+
+```bash
+# thresholds b*, tau, H* on the calib stream (pilot A) -> docs/results/thresholds.json
+PYTHONPATH=src:. .venv/bin/python scripts/calibrate_thresholds.py --checkpoint <A s0 final.pt> \
+    --output docs/results/thresholds.json --episodes 100 --workers 6
+# evaluation cells on the test stream (same episodes and drop patterns for every arm and seed)
+PYTHONPATH=src:. .venv/bin/python scripts/eval_grid.py --checkpoint point_diabl=<final.pt> \
+    --plan channel --thresholds docs/results/thresholds.json --episodes 100 --out runs/evals/final
+# tables, hypothesis verdicts (configs/analysis/hypotheses.yaml) and figures
+PYTHONPATH=src:. .venv/bin/python scripts/aggregate_results.py runs/evals/final \
+    --thresholds docs/results/thresholds.json --out docs/results/final
+# side-by-side demo video of one test episode
+PYTHONPATH=src:. .venv/bin/python scripts/record_demo.py --checkpoint "A=<final.pt>" \
+    --checkpoint "ctrl=<final.pt>" --condition iid-p0.2 --out runs/demo/a_vs_ctrl.mp4
+```
 
 Documentation: [docs/](docs/README.md) has the [timeline](docs/timeline.md), the
 [decision log](docs/decisions.md) (including how and why decisions changed) and
