@@ -174,3 +174,14 @@ def test_evaluate_with_condition_uses_stream_and_records_condition(tmp_path):
     rows_b = [json.loads(x) for x in (tmp_path / "b" / "episodes.jsonl").read_text().splitlines()]
     assert [r["episode_seed"] for r in rows_b] == [r["episode_seed"] for r in rows]
     assert [r["messages_delivered"] for r in rows_b] == [r["messages_delivered"] for r in rows]
+
+
+def test_on_step_reports_delivery_for_rendering(tmp_path):
+    from dynabelief.evaluation.evaluate import RandomAgent, evaluate
+
+    seen = []
+    evaluate(_comm_config(), RandomAgent(5, 0), 1, None, on_step=seen.append,
+             condition=Condition.parse("iid-p0.5"), stream="test")  # fmt: skip
+    assert seen and all("delivery" in s for s in seen)
+    assert seen[0]["delivery"].shape == (8, 8) and not seen[0]["delivery"].any()  # first step
+    assert any(s["delivery"].any() for s in seen[1:])

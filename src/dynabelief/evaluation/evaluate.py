@@ -237,7 +237,8 @@ def evaluate(
                     map_scores.update(belief, priv, actor, env_cfg.obs_range)
                     if on_step is not None:
                         on_step({"episode": k, "t": t, "actor": actor, "privileged": priv,
-                                 "belief": belief, "target": None, "valid": None})  # fmt: skip
+                                 "belief": belief, "target": None, "valid": None,
+                                 "delivery": delivery})  # fmt: skip
                 elif belief is not None or on_step is not None:
                     target, valid = point_targets(priv.pursuer_pos, priv.evader_pos,
                                                   priv.evader_alive, env_cfg.obs_range,
@@ -259,7 +260,8 @@ def evaluate(
                             remote += int(far.sum())
                     if on_step is not None:
                         on_step({"episode": k, "t": t, "actor": actor, "privileged": priv,
-                                 "belief": belief, "target": target, "valid": valid})  # fmt: skip
+                                 "belief": belief, "target": target, "valid": valid,
+                                 "delivery": delivery})  # fmt: skip
                 result = env.step(actions)
                 first_step = False
                 actor, priv = result.actor, result.privileged
