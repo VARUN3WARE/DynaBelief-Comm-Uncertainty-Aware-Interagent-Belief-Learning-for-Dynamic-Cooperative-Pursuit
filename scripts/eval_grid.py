@@ -43,8 +43,10 @@ def main(argv: list[str] | None = None) -> int:
                  for label in labels]  # fmt: skip
     print(f"{len(jobs)} cells ({len(args.checkpoint)} checkpoints x {len(labels)} conditions)")
     for job, s in zip(jobs, run_jobs(jobs, args.workers), strict=True):
-        print(f"{job.arm:24s} s{s['seed']} {job.condition:28s} capture {s['mean_capture_rate']:.3f}"
-              + (f"  send {s['send_rate']:.3f}" if "send_rate" in s else ""))
+        print(
+            f"{job.arm:24s} s{s['seed']} {job.condition:28s} capture {s['mean_capture_rate']:.3f}"
+            + (f"  send {s['send_rate']:.3f}" if "send_rate" in s else "")
+        )
     return 0
 
 
