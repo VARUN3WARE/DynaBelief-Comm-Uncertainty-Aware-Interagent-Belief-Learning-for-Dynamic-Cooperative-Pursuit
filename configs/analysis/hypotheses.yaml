@@ -1,0 +1,80 @@
+# Hypotheses for the final runs, committed 2026-11-10 BEFORE any new training run was launched
+# (the git timestamp of this file is the evidence). Thresholds are copied unchanged from the
+# team's pre-registration draft (RL/mid_eval/preregistration_DRAFT.md, section 3), which was
+# never sent; see docs/results/README_m7.md for the deviations forced by the deadline.
+#
+# Notation: for arms X and Y, D_s = mean over paired test-stream episodes of the per-episode
+# capture-rate difference X - Y for training seed s (same episode seeds and drop patterns).
+# Confirmation: the threshold is met by the mean over seeds, the 95 % seed-stratified paired
+# bootstrap CI excludes 0, and the sign agrees in >= 2/3 of the seeds (all seeds where
+# all_seeds_positive is true). Fewer than 2 seeds -> "incomplete". Otherwise "not detected".
+# Conditions written $name are resolved from docs/results/thresholds.json.
+success: "R1 and (C1 or FD or C2a)"   # C1 = C1a and C1b
+episodes: 100
+stream: test
+hypotheses:
+  - id: R1
+    text: The adapted point-belief baseline replicates
+    x: point_diabl
+    y: tarmac_pos
+    condition: iid-p0.2
+    kind: ratio            # mean capture(X) / mean capture(Y) >= threshold
+    threshold: 1.10
+    all_seeds_positive: true
+  - id: C1a
+    text: The team-posterior target makes the map informative about remote cells
+    x: d_diabl_posterior
+    condition: iid-p0
+    kind: metric           # (bce_remote_prior - bce_remote_model) / bce_remote_prior
+    metric: remote_bce_explained
+    threshold: 0.15
+    all_seeds_positive: true
+  - id: C1b
+    text: The team-posterior target also improves the task
+    x: d_diabl_posterior
+    y: d_diabl_coef10
+    condition: iid-p0.2
+    kind: diff
+    threshold: 0.05
+  - id: FD
+    text: Calibrated single-target heatmap at no capture cost
+    x: fd_heatmap
+    y: point_diabl
+    conditions: [iid-p0, iid-p0.2]
+    kind: noninferior      # mean diff >= -0.02 and lower CI bound > -0.04, every condition
+    threshold: -0.02
+    lower_ci: -0.04
+    metric_threshold: {fd_hdr_coverage_error: 0.05}
+  - id: FD-2
+    secondary: true
+    text: The heatmap helps where the channel is hard
+    x: fd_heatmap
+    y: point_diabl
+    condition: $hard
+    kind: diff
+    threshold: 0.05
+  - id: M1
+    text: The differentiable channel path matters
+    x: point_diabl
+    y: point_diabl_stopgrad
+    condition: iid-p0
+    kind: diff
+    threshold: 0.10
+    all_seeds_positive: true
+  - id: C2a
+    text: A belief-change trigger spends a message budget better than random thinning
+    arm: point_diabl
+    x_condition: $trigger
+    y_condition: $random
+    kind: diff
+    threshold: 0.03
+    all_seeds_positive: true
+    rate_match: 0.10       # trigger and random send rates within 10 % of each other
+  - id: C2b
+    secondary: true
+    text: Bursty loss hurts more than independent loss at the same mean
+    arm: point_diabl
+    x_condition: iid-p0.8
+    y_condition: ge-p0.8-b20
+    kind: diff             # capture(iid) - capture(bursty) >= 0.05
+    threshold: 0.05
