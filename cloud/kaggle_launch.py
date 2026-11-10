@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -112,10 +113,20 @@ def pushed_commit() -> str:
     return commit
 
 
+def kaggle_env(repo: Path) -> dict[str, str]:
+    """Environment for the Kaggle CLI. A repo-local ``.kaggle/kaggle.json`` (gitignored; this
+    project's own Kaggle account) takes precedence over the user's global ``~/.kaggle``."""
+    env = dict(os.environ)
+    local = Path(repo) / ".kaggle"
+    if (local / "kaggle.json").exists() or (local / "access_token").exists():
+        env["KAGGLE_CONFIG_DIR"] = str(local)
+    return env
+
+
 def kaggle(*args: str, check: bool = True) -> str:
     exe = Path(sys.executable).with_name("kaggle")
     proc = subprocess.run([str(exe) if exe.exists() else "kaggle", *args], cwd=REPO,
-                          capture_output=True, text=True)  # fmt: skip
+                          capture_output=True, text=True, env=kaggle_env(REPO))  # fmt: skip
     if check and proc.returncode != 0:
         raise SystemExit(f"kaggle {' '.join(args)} failed:\n{proc.stdout}{proc.stderr}")
     return proc.stdout + proc.stderr

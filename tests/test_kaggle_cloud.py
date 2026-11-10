@@ -87,3 +87,27 @@ def test_train_command_keeps_snapshots_and_seed(tmp_path, monkeypatch):
     sets = [captured["entry"][i + 1] for i, x in enumerate(captured["entry"]) if x == "--set"]
     assert sets == ["experiment.seed=2", "train.snapshot_every_updates=100", "a.b=1"]
     assert captured["label"] == "point_diabl-s2" and captured["gpu"]
+
+
+def test_kaggle_config_dir_is_project_local(tmp_path, monkeypatch):
+    """A repo-local .kaggle/ (this project's own account) wins over the user's ~/.kaggle."""
+    monkeypatch.delenv("KAGGLE_CONFIG_DIR", raising=False)
+    assert "KAGGLE_CONFIG_DIR" not in launch.kaggle_env(tmp_path)  # no local config: untouched
+    (tmp_path / ".kaggle").mkdir()
+    (tmp_path / ".kaggle" / "kaggle.json").write_text('{"username": "u", "key": "k"}')
+    assert launch.kaggle_env(tmp_path)["KAGGLE_CONFIG_DIR"] == str(tmp_path / ".kaggle")
+
+
+def test_kaggle_cli_runs_with_project_config(tmp_path, monkeypatch):
+    (tmp_path / ".kaggle").mkdir()
+    (tmp_path / ".kaggle" / "kaggle.json").write_text("{}")
+    monkeypatch.setattr(launch, "REPO", tmp_path)
+    seen = {}
+
+    def fake_run(cmd, **kw):
+        seen.update(kw)
+        return launch.subprocess.CompletedProcess(cmd, 0, "username: someone\n", "")
+
+    monkeypatch.setattr(launch.subprocess, "run", fake_run)
+    assert launch.kaggle_user() == "someone"
+    assert seen["env"]["KAGGLE_CONFIG_DIR"] == str(tmp_path / ".kaggle")

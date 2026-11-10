@@ -39,3 +39,6 @@ wandb/
 # Secrets
 .env
 *.pem
+
+# Project-local Kaggle credentials (this project's own account)
+.kaggle/

@@ -93,7 +93,9 @@ def environment_report() -> dict:
         "python": platform.python_version(),
         "platform": platform.platform(),
         "vcpus": os.cpu_count(),
-        "vcpus_usable": len(os.sched_getaffinity(0)),
+        "vcpus_usable": (
+            len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else os.cpu_count()
+        ),
         "kaggle": {
             k: os.environ[k]
             for k in ("KAGGLE_KERNEL_RUN_TYPE", "KAGGLE_DOCKER_IMAGE", "KAGGLE_URL_BASE")
