@@ -193,7 +193,7 @@ def fig_map_bce(out: Path, cells) -> None:
     ax.set_xticks(range(len(groups)), [name(a) for a, _ in groups], fontsize=8)
     ax.set_ylabel("remote-cell BCE (nats/cell, lower is better)", color=INK)
     _style(ax)
-    ax.legend(frameon=False, fontsize=8)
+    ax.legend(frameon=False, fontsize=8, loc="upper center", bbox_to_anchor=(0.5, -0.12), ncol=3)
     fig.tight_layout()
     fig.savefig(out / "map_remote_bce.png")
     plt.close(fig)
