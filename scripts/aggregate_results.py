@@ -191,7 +191,9 @@ def fig_map_bce(out: Path, cells) -> None:
                     i + j * width, v[key], width - 0.02, color=col, label=lab if i == 0 else None
                 )
     ax.set_xticks(range(len(groups)), [name(a) for a, _ in groups], fontsize=8)
-    ax.set_ylabel("remote-cell BCE (nats/cell, lower is better)", color=INK)
+    ax.set_ylabel("remote-cell BCE (nats/cell)", color=INK)
+    ax.set_title("Lower is better; cells outside the agent's own view", fontsize=9, loc="left",
+                 color=MUTED)  # fmt: skip
     _style(ax)
     ax.legend(frameon=False, fontsize=8, loc="upper center", bbox_to_anchor=(0.5, -0.12), ncol=3)
     fig.tight_layout()
