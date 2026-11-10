@@ -75,9 +75,18 @@ def run(cmd: list[str], timeout: float | None = None, log: Path | None = None) -
             out.close()
 
 
-def install(dev: bool) -> int:
+def install_command(dev: bool, version: tuple[int, int] = tuple(sys.version_info[:2])) -> list:
     pkgs = DEPS + (["pytest>=8"] if dev else [])
-    return run([sys.executable, "-m", "pip", "install", "--quiet", "--no-cache-dir", *pkgs])
+    cmd = [sys.executable, "-m", "pip", "install", "--quiet", "--no-cache-dir"]
+    if version >= (3, 13):
+        # pettingzoo 1.25 declares Requires-Python <3.13 but is pure Python and runs on the
+        # Kaggle image's 3.13 (verified: env, filter and training tests pass on 3.13).
+        cmd.append("--ignore-requires-python")
+    return cmd + pkgs
+
+
+def install(dev: bool) -> int:
+    return run(install_command(dev))
 
 
 def _version(module: str) -> str | None:

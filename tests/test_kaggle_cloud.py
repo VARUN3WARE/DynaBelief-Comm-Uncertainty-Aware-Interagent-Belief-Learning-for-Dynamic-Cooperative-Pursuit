@@ -111,3 +111,12 @@ def test_kaggle_cli_runs_with_project_config(tmp_path, monkeypatch):
     monkeypatch.setattr(launch.subprocess, "run", fake_run)
     assert launch.kaggle_user() == "someone"
     assert seen["env"]["KAGGLE_CONFIG_DIR"] == str(tmp_path / ".kaggle")
+
+
+def test_install_relaxes_python_bound_on_new_kaggle_images():
+    """Kaggle's image runs Python 3.13; pettingzoo 1.25 declares <3.13 but runs there
+    (env, filter and training tests pass on 3.13), so pip must not refuse it."""
+    on_313 = entry.install_command(dev=False, version=(3, 13))
+    assert "--ignore-requires-python" in on_313 and "pettingzoo==1.25.0" in on_313
+    assert "--ignore-requires-python" not in entry.install_command(dev=False, version=(3, 11))
+    assert "pytest>=8" in entry.install_command(dev=True, version=(3, 11))
