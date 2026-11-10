@@ -48,5 +48,10 @@ def belief_loss(actor, hiddens: torch.Tensor, batch, grid_scale: float):
         return point_loss(pred, batch.belief_target, batch.belief_valid, batch.agent_mask,
                           grid_scale)  # fmt: skip
     if actor.belief_type == "map":
-        return map_loss(pred, batch.occupancy, batch.free, batch.agent_mask)
+        target = batch.occupancy
+        if getattr(actor, "map_target", "truth") == "posterior":  # arm C′: team posterior
+            if batch.map_target is None:
+                raise ValueError("map_target=posterior but the batch carries no map_target")
+            target = batch.map_target
+        return map_loss(pred, target, batch.free, batch.agent_mask)
     raise ValueError(f"unknown belief type {actor.belief_type!r}")

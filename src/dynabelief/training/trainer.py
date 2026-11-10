@@ -16,6 +16,7 @@ import numpy as np
 import torch
 
 from dynabelief.algorithms.mappo import MAPPO
+from dynabelief.beliefs.filter import EvaderFilter
 from dynabelief.beliefs.targets import point_targets, visible_evaders
 from dynabelief.comm.channel import PacketLossChannel
 from dynabelief.config import Config
@@ -49,7 +50,7 @@ def map_prior_logit(config: Config) -> float:
 
 def build_policy(config: Config, obs_shape, state_shape, n_actions: int) -> MAPPOPolicy:
     m = config.model
-    return MAPPOPolicy(
+    policy = MAPPOPolicy(
         obs_shape=tuple(obs_shape),
         state_shape=tuple(state_shape),
         n_actions=n_actions,
@@ -63,6 +64,9 @@ def build_policy(config: Config, obs_shape, state_shape, n_actions: int) -> MAPP
         belief_type=config.belief.type,
         belief_prior_logit=map_prior_logit(config) if config.belief.type == "map" else 0.0,
     )
+    # Which label the map-belief loss uses (a plain attribute: not part of the weights).
+    policy.actor.map_target = config.belief.map_target
+    return policy
 
 
 class MAPPOTrainer:
@@ -122,6 +126,13 @@ class MAPPOTrainer:
                 else None
             )
             self._seen = np.zeros((train.num_envs, config.env.n_evaders), dtype=bool)
+            # Arm C′: training-only Bayes filter over the team's views (labels only).
+            self.filter = (
+                EvaderFilter(train.num_envs, config.env.n_evaders,
+                             (config.env.y_size, config.env.x_size), config.env.obs_range)
+                if config.belief.map_target == "posterior"
+                else None
+            )  # fmt: skip
             self.algo = MAPPO(
                 self.policy,
                 config.ppo,
@@ -237,6 +248,12 @@ class MAPPOTrainer:
             else:
                 target = np.zeros((self.vec.num_envs, n, 2), dtype=np.float32)
                 valid = np.zeros((self.vec.num_envs, n), dtype=bool)
+            extra = {}
+            if self.filter is not None:
+                free = priv.global_state[:, 0] == 0
+                self.filter.reset(start.cpu().numpy(), free)
+                self.filter.update(priv.pursuer_pos, priv.evader_pos, priv.evader_alive, free)
+                extra["map_target"] = self._t(self.filter.occupancy(), torch.float32)
             result = self.vec.step(actions.cpu().numpy())
 
             final_values = torch.zeros_like(values)
@@ -264,6 +281,7 @@ class MAPPOTrainer:
                 global_state=self._t(priv.global_state, torch.float32),
                 pursuer_pos=self._t(priv.pursuer_pos, torch.long),
                 step=self._t(priv.step, torch.long),
+                **extra,
             )
             for stats in result.completed:
                 record = {**stats.as_dict(), "env_steps": self.env_steps}

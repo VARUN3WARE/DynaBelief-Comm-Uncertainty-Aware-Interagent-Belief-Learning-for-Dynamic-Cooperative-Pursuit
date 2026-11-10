@@ -255,6 +255,7 @@ class PPOConfig:
 
 
 BELIEF_TYPES = ("none", "point", "map")
+MAP_TARGETS = ("truth", "posterior")
 
 
 @dataclass(frozen=True)
@@ -268,6 +269,9 @@ class BeliefConfig:
     # False = stop the belief loss's gradient at the message tensors (mechanism arm F):
     # beliefs still train each agent's own network, but no longer train the senders.
     channel_gradient: bool = True
+    # Map target (arm C′): "truth" = true occupancy of all evaders (D-DIABL, M5);
+    # "posterior" = occupancy posterior of a training-only Bayes filter over the team's views.
+    map_target: str = "truth"
 
     def validate(self) -> None:
         _require(self.type in BELIEF_TYPES, f"belief.type must be one of {BELIEF_TYPES}")
@@ -275,6 +279,11 @@ class BeliefConfig:
         _require(
             self.channel_gradient or self.type != "none",
             "belief.channel_gradient=false needs a belief (belief.type != none)",
+        )
+        _require(self.map_target in MAP_TARGETS, f"belief.map_target must be one of {MAP_TARGETS}")
+        _require(
+            self.map_target == "truth" or self.type == "map",
+            "belief.map_target=posterior needs belief.type=map",
         )
 
 

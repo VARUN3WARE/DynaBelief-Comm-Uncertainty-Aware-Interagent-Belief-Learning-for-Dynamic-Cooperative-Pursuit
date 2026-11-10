@@ -39,6 +39,8 @@ class Minibatch:
     global_state: torch.Tensor  # [L, B, C, Y, X]
     pursuer_pos: torch.Tensor  # [L, B, N, 2]
     step: torch.Tensor  # [L, B]
+    # [L, B, Y, X] TRAINING-ONLY soft map label (arm C′: team posterior); None otherwise
+    map_target: torch.Tensor | None = None
 
     @property
     def occupancy(self) -> torch.Tensor:
@@ -87,6 +89,8 @@ class RolloutBuffer:
         self.global_state = zeros(T, E, *state_shape)
         self.pursuer_pos = zeros(T, E, N, 2, dtype=torch.long)
         self.step = zeros(T, E, dtype=torch.long)
+        # Optional soft map label [T, E, Y, X] (arm C′); allocated on first use.
+        self.map_target: torch.Tensor | None = None
         self.advantages = zeros(T, E, N)
         self.returns = zeros(T, E, N)
         self.pos = 0
@@ -99,6 +103,11 @@ class RolloutBuffer:
         """Store one time step; every per-step field must be given exactly once."""
         if self.full:
             raise RuntimeError("buffer is full; call reset() after the update")
+        map_target = fields.pop("map_target", None)
+        if map_target is not None:
+            if self.map_target is None:
+                self.map_target = torch.zeros(self.T, *map_target.shape, device=self.device)
+            self.map_target[self.pos] = map_target.to(device=self.device, dtype=torch.float32)
         required = {
             "obs", "episode_start", "actor_hidden", "actions", "log_probs", "values",
             "rewards", "agent_mask", "delivery", "own_pos", "belief_target", "belief_valid",
@@ -168,4 +177,5 @@ class RolloutBuffer:
                 global_state=take(self.global_state),
                 pursuer_pos=take(self.pursuer_pos),
                 step=take(self.step),
+                map_target=take(self.map_target) if self.map_target is not None else None,
             )

@@ -15,10 +15,17 @@ import numpy as np
 import torch
 
 from dynabelief.beliefs import maps
+from dynabelief.beliefs.filter import EvaderFilter
 from dynabelief.beliefs.targets import point_targets
 from dynabelief.comm.channel import PacketLossChannel
 from dynabelief.config import Config, config_from_dict
 from dynabelief.envs.pursuit import ActorObs, PursuitEnv
+from dynabelief.evaluation.conditions import (
+    EVAL_BASE_SEED,
+    Condition,
+    EvalChannel,
+    stream_episode_seeds,
+)
 from dynabelief.policies.random_policy import RandomPolicy
 from dynabelief.training.rollout import summarize_episodes
 from dynabelief.utils.checkpointing import check_compatible, load_checkpoint
@@ -29,9 +36,11 @@ from dynabelief.utils.seeding import derive_seed, make_rng
 class MapScores:
     """Per-episode accumulator for occupancy-map beliefs and their naive references."""
 
-    KEYS = ("model", "prior", "own_view", "remote_model", "remote_prior")
+    KEYS = ("model", "prior", "own_view", "remote_model", "remote_prior", "filter",
+            "remote_filter")  # fmt: skip
 
     def __init__(self) -> None:
+        self.filter: EvaderFilter | None = None  # the C′ teacher, scored as a reference
         self.bce = {k: [0.0, 0] for k in self.KEYS}
         self.brier = [0.0, 0]
         self.bins = np.zeros((maps.N_BINS, 3))
@@ -57,6 +66,15 @@ class MapScores:
         self._add("own_view", own_view, y, mask)
         self._add("remote_model", belief, y, remote)
         self._add("remote_prior", prior, y, remote)
+        # Team posterior of the training-only filter (what the team could know).
+        if self.filter is None:
+            self.filter = EvaderFilter(1, priv.evader_pos.shape[0], occupancy.shape, obs_range)
+            self.filter.reset(np.array([True]), free[None])
+        self.filter.update(priv.pursuer_pos[None], priv.evader_pos[None],
+                           priv.evader_alive[None], free[None])  # fmt: skip
+        posterior = np.broadcast_to(self.filter.occupancy()[0], belief.shape)
+        self._add("filter", posterior, y, mask)
+        self._add("remote_filter", posterior, y, remote)
         self.brier[0] += maps.brier(belief, y, mask) * int(mask.sum())
         self.brier[1] += int(mask.sum())
         self.bins += maps.calibration_bins(belief, y, mask)
@@ -150,6 +168,8 @@ def evaluate(
     run_dir: Path | None = None,
     extra: dict[str, Any] | None = None,
     on_step: Callable[[dict[str, Any]], None] | None = None,
+    condition: Condition | None = None,
+    stream: str = "test",
 ) -> dict[str, Any]:
     """Run ``agent`` on the fixed eval seeds; per-episode records go to ``episodes.jsonl``.
 
@@ -157,10 +177,19 @@ def evaluate(
     of the same state (in grid cells) together with two naive references: guessing one's
     own position and guessing the grid centre. ``on_step`` receives a per-step dict
     (episode, t, actor, privileged, belief, target, valid) for visualization.
+
+    ``condition=None`` is the legacy protocol (``eval`` seeds of ``experiment.seed``,
+    i.i.d. ``comm.packet_loss``). With a ``Condition``, episodes come from ``stream``
+    (``calib`` or ``test``; identical for every arm and training seed) and messages go
+    through an ``EvalChannel`` (common random numbers per episode).
     """
     env_cfg = config.env
     scale = np.array([env_cfg.x_size - 1, env_cfg.y_size - 1], dtype=np.float32)
     seed = config.experiment.seed
+    if condition is None:
+        episode_seeds = eval_seeds(seed, episodes)
+    else:
+        episode_seeds = stream_episode_seeds(stream, episodes)
     env = PursuitEnv(config.env)
     records: list[dict[str, Any]] = []
     if run_dir is not None:
@@ -168,7 +197,7 @@ def evaluate(
         run_dir.mkdir(parents=True, exist_ok=True)
     writer = JsonlWriter(run_dir / "episodes.jsonl") if run_dir else None
     try:
-        for k, episode_seed in enumerate(eval_seeds(seed, episodes)):
+        for k, episode_seed in enumerate(episode_seeds):
             actor, priv = env.reset(episode_seed)
             agent.reset(k)
             errors: dict[str, list[float]] = {
@@ -178,22 +207,32 @@ def evaluate(
             map_scores = MapScores()
             # Fresh per-episode stream: episode k gets the same drop pattern for every
             # method, independent of how long earlier episodes lasted.
-            channel = PacketLossChannel(
-                env.n_agents,
-                config.comm.packet_loss,
-                make_rng(seed, "eval_comm", k),
-                message_dim=config.comm.elements_per_message,
-                bytes_per_element=config.comm.bytes_per_element,
-            )
+            if condition is None:
+                channel = PacketLossChannel(
+                    env.n_agents,
+                    config.comm.packet_loss,
+                    make_rng(seed, "eval_comm", k),
+                    message_dim=config.comm.elements_per_message,
+                    bytes_per_element=config.comm.bytes_per_element,
+                )
+            else:
+                channel = EvalChannel(env.n_agents, condition,
+                                      make_rng(EVAL_BASE_SEED, f"{stream}_comm", k),
+                                      grid_scale=float(env_cfg.x_size - 1))  # fmt: skip
             first_step = True
+            sender_belief = None  # point beliefs after the previous step (send-time state)
             while True:
                 delivery = None
                 if config.comm.enabled:
                     # Messages readable now were sent at t-1; none exist at the first step.
                     alive = actor.agent_mask & (not first_step)
-                    delivery = channel.sample_delivery(alive)
+                    if condition is None:
+                        delivery = channel.sample_delivery(alive)
+                    else:
+                        delivery = channel.sample_delivery(alive, sender_belief)
                 actions = agent.act(actor, delivery)
                 belief = getattr(agent, "last_belief", None)
+                sender_belief = belief if belief is not None and belief.ndim == 2 else None
                 if belief is not None and belief.ndim == 3:  # occupancy map [N, Y, X]
                     map_scores.update(belief, priv, actor, env_cfg.obs_range)
                     if on_step is not None:
@@ -232,10 +271,13 @@ def evaluate(
             record = {
                 **stats.as_dict(),
                 "episode": k,
-                "packet_loss": config.comm.packet_loss,
+                "packet_loss": config.comm.packet_loss if condition is None else condition.loss,
                 **(extra or {}),
                 **(channel.stats.as_dict() if config.comm.enabled else {}),
             }
+            if condition is not None:
+                record.update(condition=condition.label, stream=stream, episode_seed=episode_seed,
+                              send_rate=channel.send_rate)  # fmt: skip
             if map_scores.brier[1]:
                 record.update(map_scores.record())
             if errors["model"]:
@@ -283,13 +325,17 @@ def evaluate(
         delivered = sum(r["messages_delivered"] for r in records)
         steps = sum(r["length"] for r in records)
         summary.update(
-            packet_loss=config.comm.packet_loss,
+            packet_loss=config.comm.packet_loss if condition is None else condition.loss,
             messages_delivered_per_step=delivered / steps,
             drop_rate=1.0 - delivered / sent if sent else 0.0,
             bytes_per_capture=(
                 sum(r["bytes_sent"] for r in records) / max(1, sum(r["captures"] for r in records))
             ),
         )
+    if condition is not None:
+        summary.update(condition=condition.label, stream=stream, episodes=len(records))
+        if config.comm.enabled and records:
+            summary["send_rate"] = float(np.mean([r["send_rate"] for r in records]))
     return summary
 
 
@@ -312,7 +358,16 @@ def load_policy_for_eval(checkpoint_path: str | Path, config: Config, device: st
     env = PursuitEnv(config.env)
     policy = build_policy(saved, env.obs_shape, env.state_shape, env.n_actions)
     env.close()
-    policy.load_state_dict(data["learner"]["policy"])
+    state = dict(data["learner"]["policy"])
+    # Pilot point-belief checkpoints (Oct 2026) predate PointBeliefHead: its layers were
+    # stored as actor.belief_head.{i}; the same layers now live at actor.belief_head.net.{i}.
+    expected = policy.state_dict()
+    for key in list(state):
+        if key.startswith("actor.belief_head.") and key not in expected:
+            renamed = key.replace("actor.belief_head.", "actor.belief_head.net.", 1)
+            if renamed in expected:
+                state[renamed] = state.pop(key)
+    policy.load_state_dict(state)
     return policy.to(device), data
 
 

@@ -42,6 +42,7 @@ class ReplayBatch:
     free: torch.Tensor  # [T_r, B, Y, X]
     hidden0: torch.Tensor  # [B, N, H]
     delivery: torch.Tensor  # [T_r, B, N, N] full delivery among alive agents
+    map_target: torch.Tensor | None = None  # [T_r, B, Y, X] soft map label (arm C′)
 
 
 class EventReplayBuffer:
@@ -69,6 +70,8 @@ class EventReplayBuffer:
         self.occupancy = torch.zeros(capacity, W, *grid_yx, dtype=torch.uint8)
         self.free = torch.zeros(capacity, W, *grid_yx, dtype=torch.bool)
         self.hidden0 = torch.zeros(capacity, N, hidden_dim)
+        self.grid_yx = tuple(grid_yx)
+        self.map_target: torch.Tensor | None = None  # float16, allocated for arm C′ only
         self.size = 0
         self.next = 0
         self.added = 0
@@ -104,6 +107,11 @@ class EventReplayBuffer:
             state = rollout.global_state[t : t + W, e].cpu()
             self.occupancy[i] = (state[:, 2] > 0).to(torch.uint8)
             self.free[i] = state[:, 0] == 0
+            if rollout.map_target is not None:
+                if self.map_target is None:
+                    shape = (self.capacity, W, *self.grid_yx)
+                    self.map_target = torch.zeros(shape, dtype=torch.float16)
+                self.map_target[i] = rollout.map_target[t : t + W, e].cpu().to(torch.float16)
             self.hidden0[i] = rollout.actor_hidden[t, e].cpu()
             self.next = (i + 1) % self.capacity
             self.size = min(self.size + 1, self.capacity)
@@ -135,4 +143,5 @@ class EventReplayBuffer:
             free=take(self.free),
             hidden0=take(self.hidden0, time_major=False),
             delivery=delivery,
+            map_target=take(self.map_target).float() if self.map_target is not None else None,
         )
