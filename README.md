@@ -18,7 +18,7 @@ Object Search*, IEEE T-RO 2026 ([code](https://github.com/JernejPuc/centurymaze)
 | M4 | point-belief DIABL + uniform InfER | done: 0.974 vs 0.562 control, gain needs messages ([result](docs/results/m4_point_diabl.md)) |
 | M5 | D-DIABL | done: 0.623 at `belief.coef` 10 (+0.06 vs control), 0.523 at coef 1; point DIABL far ahead ([result](docs/results/m5_d_diabl.md)) |
 | M6 | ~~SP-InfER~~ (cut: 95 % of first sightings fall in the first 20 steps) → filter-teacher arm C′: the map belief supervised with the team posterior of a training-only Bayes filter | code done ([D50](docs/decisions.md)) |
-| M7 | multi-seed evaluation: arms ctrl / A / D / C′ / F, channel conditions, hypotheses | running ([plan and deviations](docs/results/README_m7.md)) |
+| M7 | multi-seed evaluation: arms ctrl / A / D / C′ / F, channel conditions, hypotheses | **done** — R1 + C2b confirmed; C1a/C1b not detected; M1 incomplete; C2a not comparable ([results](docs/results/final/), [plan](docs/results/README_m7.md)) |
 
 `train.policy: random` runs a no-learning smoke rollout (summaries record `"learning": false`).
 `train.policy: mappo` trains every learned method; the config selects it:

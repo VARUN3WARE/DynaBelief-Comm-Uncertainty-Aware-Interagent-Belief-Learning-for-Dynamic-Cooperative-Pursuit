@@ -1,0 +1,163 @@
+[
+ {
+  "id": "R1",
+  "kind": "ratio",
+  "threshold": 1.1,
+  "secondary": false,
+  "seeds": [
+   0,
+   1
+  ],
+  "per_seed": {
+   "0": 0.3943333333333333,
+   "1": 0.4406666666666667
+  },
+  "estimate": 1.7341735052754985,
+  "ci": [
+   1.7006015487739354,
+   1.7690708773333252
+  ],
+  "note": "",
+  "x": "point_diabl@iid-p0.2",
+  "y": "tarmac_pos@iid-p0.2",
+  "verdict": "confirmed"
+ },
+ {
+  "id": "C1a",
+  "kind": "metric",
+  "threshold": 0.15,
+  "secondary": false,
+  "seeds": [
+   0,
+   1
+  ],
+  "per_seed": {
+   "0": 0.04285078871135417,
+   "1": 0.03941778681634045
+  },
+  "estimate": 0.04113428776384731,
+  "ci": [
+   0.03881216589698766,
+   0.04338708005891806
+  ],
+  "note": "",
+  "x": "d_diabl_posterior@iid-p0",
+  "y": null,
+  "verdict": "not detected"
+ },
+ {
+  "id": "C1b",
+  "kind": "diff",
+  "threshold": 0.05,
+  "secondary": false,
+  "seeds": [
+   0,
+   1
+  ],
+  "per_seed": {
+   "0": -0.023666666666666662,
+   "1": -0.13433333333333336
+  },
+  "estimate": -0.07900000000000001,
+  "ci": [
+   -0.09116666666666666,
+   -0.067
+  ],
+  "note": "",
+  "x": "d_diabl_posterior@iid-p0.2",
+  "y": "d_diabl_coef10@iid-p0.2",
+  "verdict": "not detected"
+ },
+ {
+  "id": "FD",
+  "kind": "noninferior",
+  "threshold": -0.02,
+  "secondary": false,
+  "seeds": [],
+  "per_seed": {},
+  "estimate": null,
+  "ci": null,
+  "note": "an arm has no evaluations",
+  "x": "fd_heatmap@iid-p0",
+  "y": "point_diabl@iid-p0",
+  "verdict": "not run"
+ },
+ {
+  "id": "FD-2",
+  "kind": "diff",
+  "threshold": 0.05,
+  "secondary": true,
+  "seeds": [],
+  "per_seed": {},
+  "estimate": null,
+  "ci": null,
+  "note": "an arm has no evaluations",
+  "x": "fd_heatmap@ge-p0.8-b5",
+  "y": "point_diabl@ge-p0.8-b5",
+  "verdict": "not run"
+ },
+ {
+  "id": "M1",
+  "kind": "diff",
+  "threshold": 0.1,
+  "secondary": false,
+  "seeds": [
+   1
+  ],
+  "per_seed": {
+   "1": 0.0
+  },
+  "estimate": 0.0,
+  "ci": [
+   0.0,
+   0.0
+  ],
+  "note": "1 seed(s); confirmation needs >= 2",
+  "x": "point_diabl@iid-p0",
+  "y": "point_diabl_stopgrad@iid-p0",
+  "verdict": "incomplete"
+ },
+ {
+  "id": "C2a",
+  "kind": "diff",
+  "threshold": 0.03,
+  "secondary": false,
+  "seeds": [
+   0,
+   1,
+   2
+  ],
+  "per_seed": {},
+  "estimate": null,
+  "ci": null,
+  "note": "seed 0: send rates 0.08873146994899996 vs 0.09986062571344817",
+  "x": "point_diabl@iid-p0-trigger-t3.5",
+  "y": "point_diabl@iid-p0-random-r0.1",
+  "verdict": "not comparable"
+ },
+ {
+  "id": "C2b",
+  "kind": "diff",
+  "threshold": 0.05,
+  "secondary": true,
+  "seeds": [
+   0,
+   1,
+   2
+  ],
+  "per_seed": {
+   "0": 0.2246666666666667,
+   "1": 0.021999999999999992,
+   "2": 0.2963333333333333
+  },
+  "estimate": 0.18099999999999997,
+  "ci": [
+   0.17088888888888887,
+   0.19144444444444444
+  ],
+  "note": "",
+  "x": "point_diabl@iid-p0.8",
+  "y": "point_diabl@ge-p0.8-b20",
+  "verdict": "confirmed"
+ }
+]
