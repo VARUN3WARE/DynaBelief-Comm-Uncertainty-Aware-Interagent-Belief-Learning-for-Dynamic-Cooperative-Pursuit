@@ -20,7 +20,7 @@ Aggregated outputs: [`final/`](final/) (`verdicts.json`, `tables.md`, `tables.te
 |---|---|---|
 | 0 | ctrl, A, D (pilots); C′ | pilots: SageMaker T4; C′: Kaggle T4 |
 | 1 | ctrl, A, D, C′, F | Kaggle T4 |
-| 2 | A | Apple M5 CPU (this machine). F seed 2 not run: weekly Kaggle GPU quota exhausted; Mac F s2 was killed early |
+| 2 | A done; F in progress | A: Apple M5 CPU. F s2: Mac CPU restarted 2026-11-12 22:07 after Kaggle weekly GPU quota blocked the launch |
 
 All 5M env steps, frozen hyperparameters. Evaluations: Apple M5 CPU, 1 torch thread, sampled actions, `final.pt`, shared test stream.
 
