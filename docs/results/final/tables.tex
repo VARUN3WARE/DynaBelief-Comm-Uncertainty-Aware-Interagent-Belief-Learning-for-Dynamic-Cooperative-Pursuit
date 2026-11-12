@@ -7,7 +7,9 @@ ctrl: TarMAC + position & 0.571 & 0.569 & 0.573 & 0.571 & 0.540 \\
 A: point DIABL & 0.989 & 0.991 & 0.988 & 0.988 & 0.671 \\
 D: map, true occupancy & 0.684 & 0.686 & 0.681 & 0.654 & 0.568 \\
 C$'$: map, team posterior & 0.599 & 0.607 & 0.602 & 0.579 & 0.439 \\
-F: A + stop-gradient & 1.000 & 1.000 & 1.000 & 1.000 & 0.859 \\
+F: A + stop-gradient & 1.000 & 1.000 & 1.000 & 1.000 & 0.694 \\
+E: A without replay & 0.940 & 0.935 & 0.931 & 0.905 & 0.784 \\
+AR: A, randomized-channel training & 0.987 & 0.988 & 0.989 & 1.000 & 0.999 \\
 \bottomrule
 \end{tabular}
 
@@ -20,8 +22,12 @@ C1a & 0, 1 & 0.041 & [0.039, 0.043] & not detected \\
 C1b & 0, 1 & -0.079 & [-0.091, -0.067] & not detected \\
 FD & -- & – & – & not run \\
 FD-2 (secondary) & -- & – & – & not run \\
-M1 & 1 & 0.000 & [0.000, 0.000] & incomplete \\
+M1 & 0, 1, 2 & -0.011 & [-0.014, -0.009] & not detected \\
 C2a & 0, 1, 2 & – & – & not comparable \\
 C2b (secondary) & 0, 1, 2 & 0.181 & [0.171, 0.191] & confirmed \\
+M2 & 0, 1, 2 & 0.048 & [0.043, 0.054] & not detected \\
+AR1 & 0, 1, 2 & 0.192 & [0.182, 0.202] & confirmed \\
+AR2 & 0, 1, 2 & 0.069 & [0.059, 0.079] & confirmed \\
+AR3 & 0, 1, 2 & -0.002 & [-0.007, 0.003] & not detected \\
 \bottomrule
 \end{tabular}

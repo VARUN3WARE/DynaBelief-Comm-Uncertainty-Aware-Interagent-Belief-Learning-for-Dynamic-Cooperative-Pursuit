@@ -102,20 +102,24 @@
   "threshold": 0.1,
   "secondary": false,
   "seeds": [
-   1
+   0,
+   1,
+   2
   ],
   "per_seed": {
-   "1": 0.0
+   "0": -0.03333333333333332,
+   "1": 0.0,
+   "2": 0.0
   },
-  "estimate": 0.0,
+  "estimate": -0.011111111111111106,
   "ci": [
-   0.0,
-   0.0
+   -0.013555555555555552,
+   -0.008777777777777777
   ],
-  "note": "1 seed(s); confirmation needs >= 2",
+  "note": "",
   "x": "point_diabl@iid-p0",
   "y": "point_diabl_stopgrad@iid-p0",
-  "verdict": "incomplete"
+  "verdict": "not detected"
  },
  {
   "id": "C2a",
@@ -159,5 +163,105 @@
   "x": "point_diabl@iid-p0.8",
   "y": "point_diabl@ge-p0.8-b20",
   "verdict": "confirmed"
+ },
+ {
+  "id": "M2",
+  "kind": "diff",
+  "threshold": 0.1,
+  "secondary": false,
+  "seeds": [
+   0,
+   1,
+   2
+  ],
+  "per_seed": {
+   "0": -0.03333333333333332,
+   "1": 0.0,
+   "2": 0.17866666666666664
+  },
+  "estimate": 0.048444444444444436,
+  "ci": [
+   0.04333333333333333,
+   0.05355555555555556
+  ],
+  "note": "",
+  "x": "point_diabl@iid-p0",
+  "y": "point_diabl_noreplay@iid-p0",
+  "verdict": "not detected"
+ },
+ {
+  "id": "AR1",
+  "kind": "diff",
+  "threshold": 0.1,
+  "secondary": false,
+  "seeds": [
+   0,
+   1,
+   2
+  ],
+  "per_seed": {
+   "0": 0.26066666666666666,
+   "1": 0.021999999999999992,
+   "2": 0.29266666666666663
+  },
+  "estimate": 0.19177777777777774,
+  "ci": [
+   0.18155555555555555,
+   0.20222222222222222
+  ],
+  "note": "",
+  "x": "point_diabl_robust@ge-p0.8-b20",
+  "y": "point_diabl@ge-p0.8-b20",
+  "verdict": "confirmed"
+ },
+ {
+  "id": "AR2",
+  "kind": "diff",
+  "threshold": 0.03,
+  "secondary": false,
+  "seeds": [
+   0,
+   1,
+   2
+  ],
+  "per_seed": {
+   "0": 0.09233333333333332,
+   "1": 0.0,
+   "2": 0.11399999999999996
+  },
+  "estimate": 0.06877777777777776,
+  "ci": [
+   0.059222222222222204,
+   0.07899999999999999
+  ],
+  "note": "",
+  "x": "point_diabl_robust@iid-p0-random-r0.1",
+  "y": "point_diabl@iid-p0-random-r0.1",
+  "verdict": "confirmed"
+ },
+ {
+  "id": "AR3",
+  "kind": "diff",
+  "threshold": -0.02,
+  "secondary": false,
+  "seeds": [
+   0,
+   1,
+   2
+  ],
+  "per_seed": {
+   "0": 0.03333333333333332,
+   "1": 0.0,
+   "2": -0.038999999999999986
+  },
+  "estimate": -0.001888888888888889,
+  "ci": [
+   -0.00711111111111111,
+   0.002777777777777777
+  ],
+  "note": "",
+  "x": "point_diabl_robust@iid-p0",
+  "y": "point_diabl@iid-p0",
+  "verdict": "not detected"
  }
 ]
