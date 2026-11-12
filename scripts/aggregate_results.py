@@ -27,6 +27,8 @@ ARMS = {
     "d_diabl_coef10": ("D: map, true occupancy", "#1baf7a", "^"),
     "d_diabl_posterior": ("C′: map, team posterior", "#eda100", "D"),
     "point_diabl_stopgrad": ("F: A + stop-gradient", "#e87ba4", "v"),
+    "point_diabl_noreplay": ("E: A without replay", "#008300", "P"),
+    "point_diabl_robust": ("AR: A, randomized-channel training", "#6250d6", "X"),
 }
 LOSSES = ["iid-p0", "iid-p0.2", "iid-p0.5", "iid-p0.8", "iid-p1"]
 INK, MUTED, GRID = "#1f1f1e", "#6b6a64", "#e4e3dd"
@@ -214,7 +216,8 @@ def main(argv: list[str] | None = None) -> int:
         cells.update(load_cells(root))
     thresholds = json.loads(args.thresholds.read_text()) if args.thresholds else None
     spec = yaml.safe_load(args.hypotheses.read_text())
-    verdicts = [evaluate_hypothesis(h, cells, thresholds) for h in spec["hypotheses"]]
+    hyps = spec["hypotheses"] + spec.get("amendment_1", [])  # follow-up arms, declared later
+    verdicts = [evaluate_hypothesis(h, cells, thresholds) for h in hyps]
     args.out.mkdir(parents=True, exist_ok=True)
     (args.out / "verdicts.json").write_text(json.dumps(verdicts, indent=1, default=str))
     rows = capture_table(cells, LOSSES)
