@@ -78,3 +78,40 @@ hypotheses:
     y_condition: ge-p0.8-b20
     kind: diff             # capture(iid) - capture(bursty) >= 0.05
     threshold: 0.05
+
+# ---- Amendment 1, committed 2026-11-12 ~23:30 IST, BEFORE the runs it concerns were launched.
+# Added after the main results above were known (R1 confirmed, C1 not detected, A - F = 0 on the one
+# F seed). These arms are therefore exploratory follow-ups, labelled as such in the report.
+#   E  = point_diabl_noreplay : A without InfER replay (which ingredient gives the gain?)
+#   AR = point_diabl_robust   : A trained on a randomized channel (per episode: clean, team-wide bursty
+#        loss, or a low send rate) instead of a lossless one. Motivation: A trained lossless falls to
+#        0.70-0.74 under bursty 80 % loss on two of three seeds.
+amendment_1:
+  - id: M2
+    text: The InfER replay matters for the point belief's gain
+    x: point_diabl
+    y: point_diabl_noreplay
+    condition: iid-p0
+    kind: diff
+    threshold: 0.10
+  - id: AR1
+    text: Channel-randomized training makes the point belief robust to bursty loss
+    x: point_diabl_robust
+    y: point_diabl
+    condition: ge-p0.8-b20
+    kind: diff
+    threshold: 0.10
+  - id: AR2
+    text: ... and to a 10 % random send budget
+    x: point_diabl_robust
+    y: point_diabl
+    condition: iid-p0-random-r0.1
+    kind: diff
+    threshold: 0.03
+  - id: AR3
+    text: ... at no cost on the clean channel (estimate >= -0.02)
+    x: point_diabl_robust
+    y: point_diabl
+    condition: iid-p0
+    kind: diff
+    threshold: -0.02
