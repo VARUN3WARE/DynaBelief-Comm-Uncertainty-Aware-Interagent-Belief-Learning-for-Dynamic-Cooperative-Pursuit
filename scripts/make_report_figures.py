@@ -1,6 +1,6 @@
 """Report figures with plain method names, from the evaluation cells (no number is typed by hand).
 
-    scripts/make_report_figures.py runs/evals/final --out ../report/figures  (PYTHONPATH=src:.)
+scripts/make_report_figures.py runs/evals/final --out ../report/figures  (PYTHONPATH=src:.)
 """
 
 from __future__ import annotations
