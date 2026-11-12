@@ -18,7 +18,7 @@ import torch
 from dynabelief.algorithms.mappo import MAPPO
 from dynabelief.beliefs.filter import EvaderFilter
 from dynabelief.beliefs.targets import point_targets, visible_evaders
-from dynabelief.comm.channel import PacketLossChannel
+from dynabelief.comm.channel import PacketLossChannel, RandomizedTrainChannel
 from dynabelief.config import Config
 from dynabelief.envs.pursuit import PrivilegedInfo, stack_privileged
 from dynabelief.envs.vector import PursuitVecEnv
@@ -166,6 +166,12 @@ class MAPPOTrainer:
                 if comm.enabled
                 else None
             )
+            if comm.enabled and comm.train_channel == "randomized":  # arm AR
+                self.channel = RandomizedTrainChannel(
+                    self.vec.n_agents, train.num_envs, make_rng(seed, "comm"),
+                    message_dim=comm.elements_per_message,
+                    bytes_per_element=comm.bytes_per_element,
+                )  # fmt: skip
             self.env_steps = 0
             self.update_index = 0
             self.best_score = -math.inf
@@ -216,6 +222,8 @@ class MAPPOTrainer:
             if self.channel is not None:
                 # Messages readable now were sent at t-1; none exist at an episode start.
                 alive = actor.agent_mask & ~start.cpu().numpy()[:, None]
+                if hasattr(self.channel, "new_episodes"):
+                    self.channel.new_episodes(start.cpu().numpy())
                 delivery = self._t(self.channel.sample_delivery(alive), torch.bool)
             else:
                 delivery = torch.zeros(self.vec.num_envs, n, n, dtype=torch.bool,

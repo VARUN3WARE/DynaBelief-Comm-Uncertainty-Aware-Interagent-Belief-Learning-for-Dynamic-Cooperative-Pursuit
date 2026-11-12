@@ -117,3 +117,77 @@ class PacketLossChannel:
             message_dim=old.message_dim, bytes_per_element=old.bytes_per_element
         )
         return old
+
+
+class RandomizedTrainChannel:
+    """Training channel of arm AR: every episode of every environment draws one channel mode.
+
+    ``clean``   every message is delivered (share 0.4)
+    ``bursty``  team-wide Gilbert-Elliott loss: in the bad state every link drops; mean loss drawn
+                uniformly from 0.5 to 0.9, mean bad-run length from {5, 20, 50} steps (share 0.3)
+    ``budget``  each sender transmits to everyone with a per-step probability drawn from
+                {0.05, 0.1, 0.2, 0.5} (share 0.3)
+
+    Same interface as ``PacketLossChannel``; the trainer calls ``new_episodes`` with the
+    environments that start an episode at this step. Evaluation never uses this class.
+    """
+
+    MODES = ("clean", "bursty", "budget")
+    SHARES = (0.4, 0.3, 0.3)
+    LOSS = (0.5, 0.9)
+    BURSTS = (5, 20, 50)
+    RATES = (0.05, 0.1, 0.2, 0.5)
+
+    def __init__(self, n_agents: int, num_envs: int, rng: np.random.Generator,
+                 message_dim: int = 16, bytes_per_element: int = 4) -> None:  # fmt: skip
+        self.n_agents, self.num_envs, self.rng = n_agents, num_envs, rng
+        self.stats = MessageStats(message_dim=message_dim, bytes_per_element=bytes_per_element)
+        self._off_diagonal = ~np.eye(n_agents, dtype=bool)
+        self.mode = np.zeros(num_envs, dtype=np.int64)
+        self.loss = np.zeros(num_envs)
+        self.burst = np.ones(num_envs)
+        self.rate = np.ones(num_envs)
+        self.bad = np.zeros(num_envs, dtype=bool)
+
+    def new_episodes(self, start: np.ndarray) -> None:
+        """Draw a fresh mode (and its parameters) for the environments in ``start [E]``."""
+        start = np.asarray(start, dtype=bool)
+        E = self.num_envs
+        # Fixed draws per call, whatever ``start`` is: the stream ignores episode ends.
+        mode = self.rng.choice(len(self.MODES), size=E, p=self.SHARES)
+        loss = self.rng.uniform(*self.LOSS, size=E)
+        burst = self.rng.choice(self.BURSTS, size=E).astype(float)
+        rate = self.rng.choice(self.RATES, size=E)
+        bad0 = self.rng.random(E) < loss  # stationary start of the Gilbert-Elliott chain
+        self.mode = np.where(start, mode, self.mode)
+        self.loss = np.where(start, loss, self.loss)
+        self.burst = np.where(start, burst, self.burst)
+        self.rate = np.where(start, rate, self.rate)
+        self.bad = np.where(start, bad0 & (mode == 1), self.bad)
+
+    def sample_delivery(self, alive: np.ndarray) -> np.ndarray:
+        alive = np.asarray(alive, dtype=bool)
+        if alive.shape != (self.num_envs, self.n_agents):
+            raise ValueError(f"alive must be {(self.num_envs, self.n_agents)}, got {alive.shape}")
+        u_state = self.rng.random(self.num_envs)
+        u_send = self.rng.random((self.num_envs, self.n_agents))
+        bursty, budget = self.mode == 1, self.mode == 2
+        # Gilbert-Elliott: P(bad -> good) = 1 / burst, P(good -> bad) = loss / (burst (1 - loss)).
+        p_gb = self.loss / (self.burst * np.maximum(1.0 - self.loss, 1e-9))
+        self.bad = bursty & np.where(self.bad, u_state >= 1.0 / self.burst, u_state < p_gb)
+        send = alive & (~budget[:, None] | (u_send < self.rate[:, None]))
+        attempted = self._off_diagonal & alive[:, :, None] & send[:, None, :]
+        delivered = attempted & ~self.bad[:, None, None]
+        n_sent, n_delivered = int(attempted.sum()), int(delivered.sum())
+        self.stats.sent += n_sent
+        self.stats.delivered += n_delivered
+        self.stats.dropped += n_sent - n_delivered
+        self.stats.steps += self.num_envs
+        return delivered
+
+    def reset_stats(self) -> MessageStats:
+        old = self.stats
+        self.stats = MessageStats(
+            message_dim=old.message_dim, bytes_per_element=old.bytes_per_element
+        )
+        return old

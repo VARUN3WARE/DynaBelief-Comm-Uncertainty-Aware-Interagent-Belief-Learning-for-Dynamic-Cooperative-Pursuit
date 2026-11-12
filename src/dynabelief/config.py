@@ -140,6 +140,9 @@ class CommConfig:
     packet_loss: float = 0.0
     delay_steps: int = 1
     bytes_per_element: int = 4  # float32 on the wire
+    # Training channel: "fixed" = i.i.d. packet_loss (every earlier arm); "randomized" = arm AR,
+    # a per-episode draw of clean / bursty / low-send-rate (comm.channel.RandomizedTrainChannel).
+    train_channel: str = "fixed"
 
     @property
     def elements_per_message(self) -> int:
@@ -152,6 +155,10 @@ class CommConfig:
         _require(0.0 <= self.packet_loss <= 1.0, "comm.packet_loss must be in [0, 1]")
         _require(self.delay_steps == 1, "comm.delay_steps: only 1-step delay is supported")
         _require(self.bytes_per_element in (1, 2, 4, 8), "comm.bytes_per_element must be 1/2/4/8")
+        _require(
+            self.train_channel in ("fixed", "randomized"),
+            "comm.train_channel must be fixed or randomized",
+        )
 
 
 @dataclass(frozen=True)
