@@ -58,7 +58,7 @@ short IDs there map to plain questions:
 | M2 | Is the replay needed? | Mostly not |
 | C2a | Is a "send when my belief changed" rule better than random sending? | Inconclusive |
 | C2b | Does bursty loss hurt more than spread-out loss? | Yes (0.81 vs 0.99) |
-| AR1, AR2, AR3 | Does robust training fix bursts and low budgets at no clean-channel cost? | Yes, all three |
+| AR1, AR2, AR3 | Does robust training fix bursts and low budgets at no clean-channel cost? | Yes: both gains confirmed; clean-channel change −0.002 (allowed −0.02) |
 | FD, FD-2 | A single-evader heatmap belief | Not run |
 
 ## Likely viva questions
